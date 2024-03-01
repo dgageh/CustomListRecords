@@ -1,0 +1,29 @@
+namespace CustomList;
+
+struct Guid
+{
+    0: required uint64 ListIdHigh;
+    1: required uint64 ListIdLow;
+}
+
+[SortableEncoding("1.0")]
+struct Key
+{
+    [KeyMetadata("PartitionKey")]
+    1: required Guid ListId;
+    2: required string ListKey;
+}
+
+struct Value 
+{
+    0: optional string Column1;
+    1: optional string Column2;
+    2: optional string Column3;
+    3: optional string Column4;
+    4: optional string Column5;
+    5: optional string Column6;
+    6: optional string Column7;
+    7: optional string Column8;
+    8: optional string Column9;
+    9: optional string Column10;
+}
