@@ -14,6 +14,9 @@ using System.IdentityModel.Metadata;
 using CustomList;
 using Guid = System.Guid;
 using System.Windows.Forms;
+using System.Drawing.Text;
+using System.Data.Common;
+using System.Net;
 
 
 namespace CustomListPoc
@@ -24,7 +27,7 @@ namespace CustomListPoc
         public const string EnvironmentEndpoint = "https://objectstorebingfd.int.westus2.binginternal.com:443/sds";
         //Use https://objectstorebingfd.int.westus2.binginternal.com:443/sds URL when code is downloaded/executed from devbox or internet (not AP backend). See more details here: https://eng.ms/docs/experiences-devices/webxt/search-content-platform/objectstore/objectstore/objectstore-public-wiki/getting-started/pf-environments
         public const string NamespaceName = "DFP-CRE";
-        public const string TableName = "CustomListPoc";
+        public const string TableName = "CustomListRecords";
         public const StoreName CertificateStoreName = StoreName.My;
         public const StoreLocation CertificateStoreLocation = StoreLocation.CurrentUser;
         public static X509CertificateCollection Certificates = LoadCert();
@@ -148,6 +151,7 @@ namespace CustomListPoc
   
         static async Task Waiter()
         {
+            int waitfor = myCommands["--wait"].Value;
             if (waitfor > 0)
             {
                 Console.WriteLine($"Waiting {waitfor} milliseconds");
@@ -160,14 +164,15 @@ namespace CustomListPoc
             public CommandOption CommandOption { get; set; }
             public string Description { get; set; }
             public int Value { get; set; }
+            public Func<int, Task> Implementer { get; set; }
         }
         static Dictionary<string, MyCommandOptions> myCommands = new Dictionary<string, MyCommandOptions>();
         
-        static void AddCommandOption(CommandLineApplication app, string command,  string description)
+        static void AddCommandOption(CommandLineApplication app, string command,  string description, Func<int, Task> implementer = null )
         {
             string cmdLineOption = $"--{command}";
             var option = app.Option(cmdLineOption, description, CommandOptionType.SingleValue);
-            myCommands.Add(cmdLineOption, new MyCommandOptions { CommandOption = option, Description = description, Value = 0 });
+            myCommands.Add(cmdLineOption, new MyCommandOptions { CommandOption = option, Description = description, Value = 0, Implementer = implementer });
         }
 
         static void CommandLine(string[] args)
@@ -177,15 +182,15 @@ namespace CustomListPoc
             // Define options
             app.HelpOption("-? | --help");
 
-            AddCommandOption(app, "import-list", "Specify which list Guid to import");
-            AddCommandOption(app, "delete-list","Specify which list to delete");
-            AddCommandOption(app, "read-keys","Specify which list to read keys from");
-            AddCommandOption(app, "upsert-keys","Specify which list to read keys from");
+            AddCommandOption(app, "import-list", "Specify which list Guid to import", BulkImporter);
+            AddCommandOption(app, "delete-list","Specify which list to delete", BulkReader);
+            AddCommandOption(app, "read-keys","Specify which list to read keys from", BulkReader);
+            AddCommandOption(app, "upsert-keys","Specify which list to read keys from", BulkUpserter);
             AddCommandOption(app, "rows","How many rows");
             AddCommandOption(app, "columns","How many columns");
-            AddCommandOption(app, "read-key","Reads the key at row/col from list n");
-            AddCommandOption(app, "update-key","Reads and updates the key at row/col from list n\");");
-            AddCommandOption(app, "delete-key","Deletes the key at row/col from list n");
+            AddCommandOption(app, "read-key","Reads the key at row/col from list n", Reader);
+            AddCommandOption(app, "update-key","Reads and updates the key at row/col from list", Updater );
+            AddCommandOption(app, "delete-key","Deletes the key at row/col from list n", Deleter);
             AddCommandOption(app, "row","Operates on the key at the given row. Increments each iteration");
             AddCommandOption(app, "col","Operates on the key at the given col. Increments each iteration");
             AddCommandOption(app, "iterations","Specificy Number of Iterations");
@@ -284,65 +289,280 @@ namespace CustomListPoc
             return clientBuilder;
         }
 
-        ​   static void LogResults(List<IDataLoadResult> results)
+
+        /*
+         *             AddCommandOption(app, "import-list", "Specify which list Guid to import");
+                    AddCommandOption(app, "delete-list","Specify which list to delete");
+                    AddCommandOption(app, "read-keys","Specify which list to read keys from");
+                    AddCommandOption(app, "upsert-keys","Specify which list to read keys from");
+                    AddCommandOption(app, "rows","How many rows");
+                    AddCommandOption(app, "columns","How many columns");
+                    AddCommandOption(app, "read-key","Reads the key at row/col from list n");
+                    AddCommandOption(app, "update-key","Reads and updates the key at row/col from list n\");");
+                    AddCommandOption(app, "delete-key","Deletes the key at row/col from list n");
+                    AddCommandOption(app, "row","Operates on the key at the given row. Increments each iteration");
+                    AddCommandOption(app, "col","Operates on the key at the given col. Increments each iteration");
+                    AddCommandOption(app, "iterations","Specificy Number of Iterations");
+                    AddCommandOption(app, "wait","Wait for n miliseconds after each operation");
+         */
+
+        private static (Key, Value) MakeImportRecord(Guid listGuid, int listNum, int recNo, int columns)
         {
-            foreach (IDataLoadResult result in results)
+            GuidToParts(listGuid, out ulong part1, out ulong part2);
+
+            Key key = new Key()
+            {
+                ListId = new CustomList.Guid
+                {
+                    ListIdHigh = part1,
+                    ListIdLow = part2
+                },
+                ListKey = $"List{listNum}Rec{recNo}"
+            };
+
+            Value value = new Value()
+            {
+                Column1 = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"),
+                Column2 = columns >= 2 ? DateTime.Now.ToString() : null,
+                Column3 = columns >= 3 ? DateTime.Now.ToString() : null,
+                Column4 = columns >= 4 ? DateTime.Now.ToString() : null,
+                Column5 = columns >= 5 ? DateTime.Now.ToString() : null,
+                Column6 = columns >= 6 ? DateTime.Now.ToString() : null,
+                Column7 = columns >= 7 ? DateTime.Now.ToString() : null,
+                Column8 = columns >= 8 ? DateTime.Now.ToString() : null,
+                Column9 = columns >= 9 ? DateTime.Now.ToString() : null,
+                Column10 = columns >= 10 ? DateTime.Now.ToString() : null,
+            };
+
+            return (key, value);   
+        }
+        private static Key MakeReadKey(Guid listGuid, int listNum, int recNo)
+        {
+            GuidToParts(listGuid, out ulong part1, out ulong part2);
+
+            Key key = new Key()
+            {
+                ListId = new CustomList.Guid
+                {
+                    ListIdHigh = part1,
+                    ListIdLow = part2
+                },
+                ListKey = $"List{listNum}Rec{recNo}"
+            };
+
+            return key;
+        }
+
+
+
+        private static (int, int) RequireRowsAndColumns()
+        {
+            int rows = RequireRows();
+            int columns = RequireColumns();
+            return (rows, columns);
+        }
+
+        private static int RequireRows()
+        {
+            int rows = myCommands["--rows"].Value;
+
+            if (rows <= 0)
+            {
+                throw new ArgumentException("--rows must be specified > 0");
+            }
+            return rows;
+        }
+
+        private static int RequireColumns()
+        {
+            int cols = myCommands["--columns"].Value;
+
+            if (cols <= 0 || cols > 10)
+            {
+                throw new ArgumentException("--columns must be specified > 0 and <= 10");
+            }
+            return cols;
+        }
+
+        private static int RequireColumn()
+        {
+            int col = myCommands["--column"].Value;
+
+            if (col <= 0 || col > 10)
+            {
+                throw new ArgumentException("--column must be specified > 0 and <= 10");
+            }
+            return col;
+        }
+
+        private static int RequireRow()
+        {
+            int row = myCommands["--row"].Value;
+
+            if (row <= 0)
+            {
+                throw new ArgumentException("--row must be specified > 0");
+            }
+            return row;
+        }
+
+        private static (int, int) RequireRowAndColumn()
+        {
+            int row = RequireRow();
+            int column = RequireColumn();
+
+            return (row, column);
+        }
+
+        private static Guid RequireValidList(int digit)
+        {
+            if (digit < 1 || digit > 9)
+            {
+                throw new ArgumentException("List id must be in the range 1-9.");
+            }
+
+            string phonyGuid = $"{digit}{digit}{digit}{digit}{digit}{digit}{digit}{digit}{digit}{digit}{digit}{digit}{digit}{digit}{digit}{digit}";
+
+            // Convert the string into a GUID format: "00000000-0000-0000-0000-000000000000"
+            return new Guid(phonyGuid.Insert(8, "-").Insert(13, "-").Insert(18, "-").Insert(23, "-"));
+        }
+
+        static void LogResults(IEnumerable<IDataLoadResult> results)
+        {
+            foreach (var result in results)
             {
                 if (result.IsSuccessful)
                 {
-                    Console.WriteLine("Record {0}: Writing to all locations successful", result.Context);
+                    Console.WriteLine("Record {0}: writing to all locations successful", result.Context);
                 }
                 else
                 {
-                    Console.WriteLine("Record {0}: Writing failed to {1} locations: {2}", result.Context, result.FailedLocations.Count, String.Join(", ", result.FailedLocations));
+                    Console.WriteLine("Record {0}: writing failed to {1} locations: {2}",
+                        result.Context,
+                        result.FailedLocations.Count,
+                        string.Join(", ", result.FailedLocations));
                 }
             }
         }
 
-        private static async Task RecordMode()
-        {​       
-            List<ITableLocation> locations = new List<ITableLocation>
+        public const string EnvironmentVip = "https://objectstorebingfd.prod.westus2.binginternal.com:443/sds";
+        //Use https://objectstorebingfd.prod.westus2.binginternal.com:443/sds URL when code is downloaded/executed from devbox or internet (not AP backend). See more details here: https://eng.ms/docs/experiences-devices/webxt/search-content-platform/objectstore/objectstore/objectstore-public-wiki/getting-started/pf-environments
+
+        private static void BulkImporter(int list)
+        {
+            (int rows, int columns) = RequireRowsAndColumns();
+            
+            Guid listGuid = RequireValidList(list);
+
+            Console.WriteLine($"Bulk Importing {rows} Rows and {columns} Columns into List {listGuid}");
+
+            var locations = new List<ITableLocation>
             {
-           // To use https protocol, pass an https URL like https://objectstoremulti.int.co.bing-int.com:443
-           // If the full path is not given,  it will add the prefix as “http” instead of https
-           new Microsoft.ObjectStore.VIP("ObjectStoreMulti.INT.CO.bing-int.com:83"), // Recommended way, see aka.ms/ObjectStore for list of VIPs​
-           new Microsoft.ObjectStore.Environment("ObjectStoreDailyLarge-Int-Co3") // DC names can change, Recommended usage is through environment agnostic VIP like above, see aka.ms/ObjectStore for list of VIPs
-           new Microsoft.ObjectStore.Environment("ObjectStore-Test-Co3") // DC names can change, Recommended usage is through environment agnostic VIP like above, see aka.ms/ObjectStore for list of VIPs
+                new VIP(EnvironmentVip)
             };
 
-            // To specify a particular location use either a Microsoft.ObjectStore.Environment object or a Microsoft.ObjectStore.VIP object
-            // The following list tells the library to publish to 3 different ObjectStore endpoints (2 specified using an environment objects and 1 specified using a VIP object)
-            // Data written using this configuration will be sent to 3 seperate environments/endpoints
+            // The loader will use 20 keys per request, 20 simultenous requests, 10000 ms of timeout per request and a limit of 1000 keys per second
+            var config = new DataLoadConfiguration(locations, NamespaceName, TableName, 20, 20, 2, 10000, 1000, true);
+            using (var loader = new DataLoader(config))
+            {
+                for (int row = 0; row < rows; row++)
+                {
+                    (var key, var value) = MakeImportRecord(listGuid, list, rows, columns);
+                    object context = row;
+                    loader.Send(key, value, context);
+                    var results = loader.Receive(waitForAllRequests: false);
+                    LogResults(results);
+                }
 
+                loader.Flush();
+                var finalResults = loader.Receive(waitForAllRequests: true);
+                LogResults(finalResults);
+            }
+        }
+
+        private static async Task BulkDeleter(int list)
+        {
+            Guid listGuid = RequireValidList(list);
+
+            Console.WriteLine($"Bulk Deleting List {listGuid}");
+
+            // TODO: Requires Range Queries
+
+        }
+        private static async Task BulkReader(int list)
+        {
+            int rows = RequireRows();
+            Guid listGuid = RequireValidList(list);
+            Console.WriteLine($"Bulk Reading the first {rows} Keys from List {listGuid}");
+            List<Key> keys = new List<Key>(rows);
+            for (int row = 1; row <= rows; row++)
+            {
+                keys.Add(MakeReadKey(listGuid, list, row));
+            }
+
+            var values = await Read(keys);
+
+            int keyCount = keys.Count();
+            int valueCount = values.Count();
+
+            Console.WriteLine($"Read the values for {keyCount} Keys.  Returned {valueCount} values.");
+        }
+
+        private static async Task BulkUpserter(int list)
+        {
+            (int rows, int columns) = RequireRowsAndColumns();
+            Guid listGuid = RequireValidList(list);
+
+            Console.WriteLine($"Bulk Upserting {rows} Rows into List {listGuid}");
+        }
+        private static async Task Reader(int list)
+        {
+            (int row, int column) = RequireRowAndColumn();
+            Guid listGuid = RequireValidList(list);
+
+            Console.WriteLine($"Reading Row {row}, Column {column} from List {listGuid}");
+
+            var key = MakeReadKey(listGuid, list, row);
+
+            var values = await Read(new[] { key });
+
+            string value = (string)typeof(Value).GetProperty("Column{column}").GetValue(values[0]);
+
+            Console.WriteLine($"Key {key.ListKey} Value {value}");
+        }
+
+        private static async Task Updater(int list)
+        {
+            (int row, int column) = RequireRowAndColumn();
+            Guid listGuid = RequireValidList(list);
+
+            Console.WriteLine($"Updating Row {row}, Column {column} of List {listGuid}");
+
+        }
+        private static async Task Deleter(int list)
+        {
+            int row = RequireRow();
+            Guid listGuid = RequireValidList(list);
+            Console.WriteLine($"Deleting Row {row} of List {listGuid}");
+        }
+
+        private static async Task TryInvoke(string command, Func<int, Task> function)
+        {
             try
             {
-                // The loader will use 20 keys per request, 20 simultenous requests, 10000 ms of timeout per request and a limit of 1000 keys per second
-                DataLoadConfiguration config = new DataLoadConfiguration(locations, "testnamespace", "testtable", 20, 20, 2, 10000, 1000, true);
-                using (DataLoader loader = new DataLoader(config))
-                {
-                    KeyType key;
-                    ValueType value;
-                ​    ContextType context;
-                    List<IDataLoadResult> results;
-                    while (ReadNextRecord(out key, out value, out context))
-                    {
-                        // Important: key and value objects are cached until flushed. Changing the contents of key or value before the flush will alter the previously added data
-                        loader.Send(key, value, context);
-                        results = loader.Receive(false);
-                        LogResults(results);
-                    }
+                int argument = myCommands[command].Value;
 
-                    loader.Flush();
-                    results = loader.Receive(true);
-                    LogResults(results);
+                if (argument > 0)
+                {
+                    await Waiter();
+                    await function(argument);
+                    Console.WriteLine($"{command} executed successfully.");
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Exception: {ex.Message}");
+                Console.WriteLine($"{command} failed with error: {ex.Message}");
             }
-
-
         }
 
 
@@ -361,29 +581,12 @@ namespace CustomListPoc
                     for (int iteration = 1; iteration <= iterations; iteration++)
                     {
                         Console.WriteLine($"Iteration: {iteration}");
-
-                        if (writer)
+                        foreach (var kvp in myCommands)
                         {
-                            await Waiter();
-                            await Writer(TenantId, EnvironmentId);
-                        }
-
-                        if (reader)
-                        {
-                            await Waiter();
-                            await Reader(TenantId, EnvironmentId);
-                        }
-
-                        if (deleter)
-                        {
-                            await Waiter();
-                            await Deleter(TenantId, EnvironmentId);
-                        }
-
-                        if (shower)
-                        {
-                            await Waiter();
-                            await Shower(TenantId, EnvironmentId);
+                            if (kvp.Value.Implementer != null)
+                            {
+                                await TryInvoke(kvp.Key, kvp.Value.Implementer);
+                            }
                         }
                     }
                 }
