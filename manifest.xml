@@ -1,0 +1,36 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Manifest>
+  <File name="dependencies.ini" hash="40DFCFBBBD4CFEB1643EEEF9B076E73DCBF581532055B0D18EFD6BEDF707FC52" />
+  <File name="package.xml" hash="68650249E0B39992C6CB29783937A05F29A10DC866C51DD45E897E33ADEACFDB" />
+  <File name="bin\debug\amd64\Microsoft.ObjectStore.PointDataLoader.dll" hash="E821EE27930EBD229A415977918B88B2915857AA9DCABFFA913958E94EF76D0D" />
+  <File name="bin\debug\amd64\Microsoft.ObjectStore.PointDataLoader.pdb" hash="D12899B5A1AF4363D6147F6B705A0D0B37BD66A5E8943A1F1208B39135A7C1F8" />
+  <File name="bin\debug\amd64\Microsoft.ObjectStore.PointDataLoader.xml" hash="1BE3967128A3B3A2ACDE7D0286F3D512D7874813538A1CA4F686A149E58FA338" />
+  <File name="bin\debug\amd64\Microsoft.Search.ObjectStore.Asp5CompliantBond3Client.dll" hash="AE922A7CD6701EB6D568FAB687C0DA4BFB3FE410710ACBA258922FC3312F2B13" />
+  <File name="bin\debug\amd64\Microsoft.Search.ObjectStore.Asp5CompliantBond3Client.pdb" hash="5D0E057A2AB56840717D79C79FCA6FBBF4A9818D3875EB7EC80E2BC55B9A1CA4" />
+  <File name="bin\debug\amd64\Microsoft.Search.ObjectStore.Asp5CompliantBond3Client.xml" hash="B7BA3B000D06289B0130C0C730371A4E04B1E95CE404BA44B4356D2DE219BF03" />
+  <File name="bin\debug\amd64\Microsoft.Search.ObjectStore.Asp5CompliantClient.dll" hash="CCA3BA245F5D21E9B9ADC8BDFBDE1E0CC8DE6177FA611E0D61EB4B0A2B3BB70B" />
+  <File name="bin\debug\amd64\Microsoft.Search.ObjectStore.Asp5CompliantClient.pdb" hash="CA129DE2103FC34B479B82EBA5527123BBEBBD73ECD27201AEAF97B2800F2553" />
+  <File name="bin\debug\amd64\Microsoft.Search.ObjectStore.Asp5CompliantClient.xml" hash="4C32B4BA1BB1450907A952F56B885B04BE2A8049B7F3F04AD6BF206805EF8D57" />
+  <File name="bin\debug\amd64\Microsoft.Search.ObjectStore.Bond4Client.dll" hash="CEFCF784C405FDC2675C99768F854312982670E62674577D898C8F6C6D048458" />
+  <File name="bin\debug\amd64\Microsoft.Search.ObjectStore.Bond4Client.pdb" hash="6C257F8904722AF292F9D374DB4750F2ECDAEA990A8C7A63528A7CED1F04ACAB" />
+  <File name="bin\debug\amd64\Microsoft.Search.ObjectStore.Bond4Client.xml" hash="A060F30F631B3556419FEA2FA515E0E35A6E1AA68300391952895CA4586700A4" />
+  <File name="bin\debug\amd64\Microsoft.Search.ObjectStore.Client.dll" hash="D2A72610B3724408F18563BCCE3BB2D7E52AC21342B577422F6E4F24B11E7788" />
+  <File name="bin\debug\amd64\Microsoft.Search.ObjectStore.Client.pdb" hash="8A4854ABE7C3DC0CF2AC28280CB5C88152674DDD15652ED935ADAAC2641F1F55" />
+  <File name="bin\debug\amd64\Microsoft.Search.ObjectStore.Client.xml" hash="306217AB37C1DFAF7D55D13334E543B8EDC7D834219F2D5A11706453260D6D2E" />
+  <File name="bin\retail\amd64\Microsoft.ObjectStore.PointDataLoader.dll" hash="FAF8757DA8FF69832CECB693F205FD6F5A525C48508D3225627D96CB13FF5B76" />
+  <File name="bin\retail\amd64\Microsoft.ObjectStore.PointDataLoader.pdb" hash="5F3103F7C0A3BD9C7A4946FF8BB0C5F5DCE82C3834A3F7A6E539533D2466F753" />
+  <File name="bin\retail\amd64\Microsoft.ObjectStore.PointDataLoader.xml" hash="1BE3967128A3B3A2ACDE7D0286F3D512D7874813538A1CA4F686A149E58FA338" />
+  <File name="bin\retail\amd64\Microsoft.Search.ObjectStore.Asp5CompliantBond3Client.dll" hash="E2BC3E2B09F4C032E6ADFB729A773459CEE71B9751F214E7A98E8E54204B35EF" />
+  <File name="bin\retail\amd64\Microsoft.Search.ObjectStore.Asp5CompliantBond3Client.pdb" hash="FFD14A3D2362253BA463EB55DAC0FCB6A4B5FC9DFB2F2E3549996814A101B11B" />
+  <File name="bin\retail\amd64\Microsoft.Search.ObjectStore.Asp5CompliantBond3Client.xml" hash="B7BA3B000D06289B0130C0C730371A4E04B1E95CE404BA44B4356D2DE219BF03" />
+  <File name="bin\retail\amd64\Microsoft.Search.ObjectStore.Asp5CompliantClient.dll" hash="C6CCFCBE359FB83F0A22D9CE571843AAD627B266AFB3367E0FA4A4BE3FF6E3C5" />
+  <File name="bin\retail\amd64\Microsoft.Search.ObjectStore.Asp5CompliantClient.pdb" hash="2695EF8ABC54C44D818BFBCB912819E0A61C563E0B429ED28ED9A77AFFC44D57" />
+  <File name="bin\retail\amd64\Microsoft.Search.ObjectStore.Asp5CompliantClient.xml" hash="4C32B4BA1BB1450907A952F56B885B04BE2A8049B7F3F04AD6BF206805EF8D57" />
+  <File name="bin\retail\amd64\Microsoft.Search.ObjectStore.Bond4Client.dll" hash="DD722351E13BC6A7A71D054154FBCB634F3FB8ED7C67E04BE01C0D8DD08F0AB5" />
+  <File name="bin\retail\amd64\Microsoft.Search.ObjectStore.Bond4Client.pdb" hash="CF5557DDBE75F261CEDABD9D8A0E4009927BFD562C2C277798A166675A53CC99" />
+  <File name="bin\retail\amd64\Microsoft.Search.ObjectStore.Bond4Client.xml" hash="A060F30F631B3556419FEA2FA515E0E35A6E1AA68300391952895CA4586700A4" />
+  <File name="bin\retail\amd64\Microsoft.Search.ObjectStore.Client.dll" hash="A90D27FABD02316D194955C73706DB7CED625753B66ACDB1352D7CA5DFAC347A" />
+  <File name="bin\retail\amd64\Microsoft.Search.ObjectStore.Client.pdb" hash="B2392CEF8251FBD1FBAC8D499DFABE4A4EA2C93D03CF870FC7C04A3C0447BB72" />
+  <File name="bin\retail\amd64\Microsoft.Search.ObjectStore.Client.xml" hash="306217AB37C1DFAF7D55D13334E543B8EDC7D834219F2D5A11706453260D6D2E" />
+  <Checksum>66BEE827CA744D3CF93A36DDF3AB966B2D88E0F7C14F2E197522110A9F45E7F5</Checksum>
+</Manifest>

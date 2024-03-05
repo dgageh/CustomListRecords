@@ -1,0 +1,45 @@
+<Package
+    name="ObjectStoreClient.Library"
+    namespace="indexgen"
+    version="7.24"
+    schemaVersion="1.0">
+  <Description>
+  This package contains an HTTP based client for interacting with Object Store tables.
+  </Description>
+
+  <Permissions>
+    <Owners>
+        <User Identity="REDMOND\vipulha" />
+        <User Identity="REDMOND\jasol" />
+    </Owners>
+      <Contributors>
+          <User Identity="REDMOND\entitypdev" />
+          <User Identity="REDMOND\virajput" />
+          <User Identity="REDMOND\dadere" />
+          <User Identity="REDMOND\vpruthi" />
+          <User Identity="REDMOND\ObjectStoreSG"/>
+      </Contributors>
+  </Permissions>
+
+  <Public>
+    <Exports>
+        <Export name="bond4" description="Use Bond 4 (OSS version)" />
+        <Export name="asp5compliant" description="In addition to using Bond 4, be ASP.NET 5 compliant. This version lacks certain features and thus is not recommended for general use." />
+        <Export name="asp5bond3compliant" description="This is bond 3 compatible version of ASP.Net 5 client. This version lacks certain features and thus is not recommended for general use." />
+        <Export name="ospdl" description="Internal. Do not use!" />
+    </Exports>
+    <Binaries>
+        <Binary name="Microsoft.Search.ObjectStore.Client.dll" arch="amd64" availability="PASS1" export="default" />
+        <Binary name="Microsoft.Search.ObjectStore.Bond4Client.dll" arch="amd64" availability="PASS1" export="bond4" />
+        <Binary name="Microsoft.Search.ObjectStore.Asp5CompliantClient.dll" arch="amd64" availability="PASS1" export="asp5compliant" />
+        <Binary name="Microsoft.Search.ObjectStore.Asp5CompliantBond3Client.dll" arch="amd64" availability="PASS1" export="asp5bond3compliant" />
+        <Binary name="Microsoft.ObjectStore.PointDataLoader.dll" arch="amd64" availability="PASS1" export="ospdl" />
+    </Binaries>
+  </Public>
+  <Dependencies>
+    <Dependency name="Bond.Library" version="[main.3,main.4)" consumedExport="managed_core" />
+    <Dependency name="Bond.Csharp.Nuget" version="[4.0.1,6)" />
+    <Dependency name="Objectstorebondclient.Library" version="[main.1.20,main.2)" isInternal="true" />
+    <Dependency name="MSTest2010.Library" version="[release.1,release.2)" isInternal="true" />
+  </Dependencies>
+</Package>
