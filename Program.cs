@@ -18,6 +18,7 @@ using System.Drawing.Text;
 using System.Data.Common;
 using System.Net;
 using System.Diagnostics;
+using ObjectStoreWireProtocol;
 
 
 namespace CustomListPoc
@@ -213,6 +214,17 @@ namespace CustomListPoc
             return rows;
         }
 
+        private static void RequireColumnPrefix()
+        {
+            string prefix = myCommands["--column-prefix"].StringValue;
+
+            if (prefix.Length > 8)
+            {
+                throw new ArgumentException("Column prefix must be 8 characters or less");
+            }
+        }
+
+
         private static int RequireColumns()
         {
             int cols = myCommands["--columns"].Value;
@@ -313,9 +325,23 @@ namespace CustomListPoc
 
             Value value = new Value();
 
+            string columnValue = string.Empty;
+
             for (int i = 1; i <= 10; i++)
             {
-                string columnValue = columns >= i ? $"{operation} Col {i} {DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}" : "";
+                if (recNo == 0)  // The schema record
+                {
+                    string columnPrefix = myCommands["--column-prefix"].StringValue;
+                    if (columnPrefix == string.Empty)
+                    {
+                        columnPrefix = "L"; 
+                    }
+                    columnValue = columns >= i ? $"{columnPrefix}{listNum}Col{i}" : "";
+                }
+                else
+                {
+                    columnValue = columns >= i ? $"{operation} Col {i} {DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}" : "";
+                }
                 typeof(Value).GetProperty($"Column{i}")?.SetValue(value, columnValue);
             }
 
@@ -347,6 +373,8 @@ namespace CustomListPoc
         private static async Task DoBulkWrite(string operation, int list, Guid listGuid, int startRow, int rows, int columns, Func<string, Guid, int, int, int, Task<(Key, Value)>> recordGenerator)
         {
             Stopwatch stopwatch = Stopwatch.StartNew();
+
+            int endRow = startRow == 0 ? startRow + rows + 1 : startRow + rows;  // If updating the schema, must add one.
             stopwatch.Stop();
             stopwatch.Reset();
             var locations = new List<ITableLocation>
@@ -354,11 +382,13 @@ namespace CustomListPoc
                 new VIP(EnvironmentVip)
             };
 
+
+
             // The loader will use 20 keys per request, 20 simultenous requests, 10000 ms of timeout per request and a limit of 1000 keys per second
             var config = new DataLoadConfiguration(locations, NamespaceName, TableName, 20, 20, 2, 10000, 1000, true).WithClientCertificates(Certificates);
             using (var loader = new DataLoader(config))
             {
-                for (int recNo = startRow; recNo < startRow + rows; recNo++)
+                for (int recNo = startRow; recNo < endRow; recNo++)
                 {
                     (var key, var value) = await recordGenerator(operation, listGuid, list, recNo, columns);
                     object context = recNo;
@@ -417,11 +447,13 @@ namespace CustomListPoc
         {
             (int rows, int columns) = RequireRowsAndColumns();
 
+            RequireColumnPrefix();
+
             Guid listGuid = RequireValidList(list, true);
 
             Console.WriteLine($"Bulk Importing {rows} Rows and {columns} Columns into List {listGuid}");
 
-            await DoBulkWrite("import", list, listGuid, 1, rows, columns, MakeImportRecord);
+            await DoBulkWrite("import", list, listGuid, 0, rows, columns, MakeImportRecord);  // Starts at 0.  Create the schema record.
         }
 
         // Upsert values into the first n columns of n rows starting at row n
@@ -449,7 +481,7 @@ namespace CustomListPoc
             await DoBulkDelete("bulk delete", list, listGuid, 1, rows, MakeRowKey);
         }
 
-
+        // Delete the whole list -- even the schema.
         private static async Task BulkDeleter2(int list)
         {
             Guid listGuid = RequireValidList(list, true);
@@ -462,7 +494,7 @@ namespace CustomListPoc
         }
 
 
-        private static Key MakeRowKey(Guid listGuid, int listNum, int recNo)
+        private static Key MakeRowKey(Guid listGuid, int listNum, int recNo) // Rec0 is the schema (the field names)
         {
             GuidToParts(listGuid, out ulong part1, out ulong part2);
 
@@ -487,7 +519,7 @@ namespace CustomListPoc
 
             Console.WriteLine($"Bulk Reading the first {rows} Keys from List {listGuid}");
             List<Key> keys = new List<Key>(rows);
-            for (int row = 1; row <= rows; row++)
+            for (int row = 0; row <= rows; row++)
             {
                 keys.Add(MakeRowKey(listGuid, list, row));
             }
@@ -498,6 +530,10 @@ namespace CustomListPoc
             int valueCount = values.Count();
 
             Console.WriteLine($"Read the values for {keyCount} Keys.  Returned {valueCount} values.");
+            for (int i = 0; i < valueCount; i++)
+            {
+                Console.WriteLine(BondToJson(values[i]));
+            }
         }
 
         private static async Task<(Key key, Value value)> DoRead(Guid listGuid, int list, int row, int column)
@@ -575,7 +611,7 @@ namespace CustomListPoc
             await Delete(new[] { key });
         }
 
-        private static async Task TryInvoke(string command, Func<int, Task> function)
+        private static async Task<bool> TryInvoke(string command, Func<int, Task> function)
         {
             try
             {
@@ -586,28 +622,32 @@ namespace CustomListPoc
                     await Waiter();
                     await function(argument);
                     Console.WriteLine($"{command} executed successfully.");
+                    return true;
                 }
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"{command} failed with error: {ex.Message}");
             }
+            return false;
         }
 
         internal class MyCommandOptions
         {
             public CommandOption CommandOption { get; set; }
             public string Description { get; set; }
+            public bool IsNumeric { get; set; }
             public int Value { get; set; }
+            public string StringValue { get; set; }
             public Func<int, Task> Implementer { get; set; }
         }
         static Dictionary<string, MyCommandOptions> myCommands = new Dictionary<string, MyCommandOptions>();
 
-        static void AddCommandOption(CommandLineApplication app, string command, string description, Func<int, Task> implementer = null)
+        static void AddCommandOption(CommandLineApplication app, bool isNumeric, string command, string description, Func<int, Task> implementer = null)
         {
             string cmdLineOption = $"--{command}";
             var option = app.Option(cmdLineOption, description, CommandOptionType.SingleValue);
-            myCommands.Add(cmdLineOption, new MyCommandOptions { CommandOption = option, Description = description, Value = 0, Implementer = implementer });
+            myCommands.Add(cmdLineOption, new MyCommandOptions { CommandOption = option, Description = description, Value = 0, IsNumeric = isNumeric, StringValue = null, Implementer = implementer });
         }
 
         static void CommandLine(string[] args)
@@ -617,20 +657,21 @@ namespace CustomListPoc
             // Define options
             app.HelpOption("-? | --help");
 
-            AddCommandOption(app, "bulk-import", "Uses Point Dataloader. Specify which list Guid to import. Imports n rows and n columns. Increments list each iteration.", BulkImporter);
-            AddCommandOption(app, "bulk-upsert", "Uses Point Dataloader. Specify which list to upsert keys into. Upserts n rows and n columns starting at given row", BulkUpserter);
-            AddCommandOption(app, "bulk-delete", "Uses Point Dataloader. Specify which list to delete keys from. Deletes n rows. Increments list each iteration.", BulkDeleter);
-            AddCommandOption(app, "read-keys", "Specify which list to read keys from. Increments each iteration", BulkReader);
-            AddCommandOption(app, "delete-list", "Uses Range Queries. Specify which list to delete. Increments list each iteration.", BulkDeleter2);
-            AddCommandOption(app, "read-key", "Reads the key at row/col from list n", Reader);
-            AddCommandOption(app, "update-key", "Reads and updates the key at row/col from list", Updater);
-            AddCommandOption(app, "delete-key", "Deletes the key at row/col from list n", Deleter);
-            AddCommandOption(app, "rows", "How many rows");
-            AddCommandOption(app, "columns", "How many columns");
-            AddCommandOption(app, "row", $"Operates on the key at the given row. Column increments each iteration until {max_column}, then row.");
-            AddCommandOption(app, "column", $"Operates on the key at the given col. Column increments each iteration until {max_column}, then row.");
-            AddCommandOption(app, "iterations", "Specificy Number of Iterations");
-            AddCommandOption(app, "wait", "Wait for n miliseconds after each operation");
+            AddCommandOption(app, true, "bulk-import", "Uses Point Dataloader. Data is generated. Specify which list Guid to import. Imports n rows and n columns. Increments list each iteration.", BulkImporter);
+            AddCommandOption(app, true, "bulk-upsert", "Uses Point Dataloader. Data is generated. Specify which list to upsert keys into. Upserts n rows and n columns starting at given row", BulkUpserter);
+            AddCommandOption(app, true, "bulk-delete", "Uses Point Dataloader. Specify which list to delete keys from. Deletes n rows. Increments list each iteration.", BulkDeleter);
+            AddCommandOption(app, true, "read-keys", "Specify which list to read keys from. Increments each iteration", BulkReader);
+            AddCommandOption(app, true, "delete-list", "Uses Range Queries. Specify which list to delete. Increments list each iteration.", BulkDeleter2);
+            AddCommandOption(app, true, "read-key", "Reads the key at row/col from list n", Reader);
+            AddCommandOption(app, true, "update-key", "Reads and updates the key at row/col from list. Data is generated.", Updater);
+            AddCommandOption(app, true, "delete-key", "Deletes the key at row/col from list n", Deleter);
+            AddCommandOption(app, false, "column-prefix", "Specifies the 1-8 chaarcter prefix for column names.  Column names are generated in this format: <prefix><l>Col<n>, l is list number, n is column number.");
+            AddCommandOption(app, true, "rows", "How many rows");
+            AddCommandOption(app, true, "columns", "How many columns");
+            AddCommandOption(app, true, "row", $"Operates on the key at the given row. Column increments each iteration until {max_column}, then row.");
+            AddCommandOption(app, true, "column", $"Operates on the key at the given col. Column increments each iteration until {max_column}, then row.");
+            AddCommandOption(app, true, "iterations", "Specificy Number of Iterations");
+            AddCommandOption(app, true, "wait", "Wait for n miliseconds after each operation");
 
             app.OnExecute(() =>
             {
@@ -646,16 +687,24 @@ namespace CustomListPoc
                 {
                     if (kvp.Value.CommandOption.HasValue())
                     {
-                        int i;
-                        if (int.TryParse(kvp.Value.CommandOption.Value(), out i))
+                        if (kvp.Value.IsNumeric)
                         {
-                            kvp.Value.Value = i;
-                            Console.WriteLine($"{kvp.Key} is {i}");
+                            int i;
+                            if (int.TryParse(kvp.Value.CommandOption.Value(), out i))
+                            {
+                                kvp.Value.Value = i;
+                                Console.WriteLine($"{kvp.Key} is {i}");
+                            }
+                            else
+                            {
+                                throw new InvalidDataException();
+
+                            }
                         }
                         else
                         {
-                            throw new InvalidDataException();
-
+                            kvp.Value.StringValue = kvp.Value.CommandOption.Value();
+                            Console.WriteLine($"{kvp.Key} is {kvp.Value.StringValue}");
                         }
                     }
                 }
@@ -690,7 +739,8 @@ namespace CustomListPoc
                         {
                             if (kvp.Value.Implementer != null)
                             {
-                                await TryInvoke(kvp.Key, kvp.Value.Implementer);
+                                if (await TryInvoke(kvp.Key, kvp.Value.Implementer))
+                                    break;  // One command per iteration
                             }
                         }
                     }
