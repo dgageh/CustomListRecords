@@ -17,6 +17,7 @@ using System.Windows.Forms;
 using System.Drawing.Text;
 using System.Data.Common;
 using System.Net;
+using System.Diagnostics;
 
 
 namespace CustomListPoc
@@ -24,7 +25,7 @@ namespace CustomListPoc
     class Program
     {
 
-        public const string EnvironmentEndpoint = "https://objectstorebingfd.int.westus2.binginternal.com:443/sds";
+        public const string EnvironmentEndpoint = "https://objectstorebingfd.prod.westus2.binginternal.com:443/sds";// https://objectstorebingfd.int.westus2.binginternal.com:443/sds";
         //Use https://objectstorebingfd.int.westus2.binginternal.com:443/sds URL when code is downloaded/executed from devbox or internet (not AP backend). See more details here: https://eng.ms/docs/experiences-devices/webxt/search-content-platform/objectstore/objectstore/objectstore-public-wiki/getting-started/pf-environments
         public const string NamespaceName = "DFP-CRE";
         public const string TableName = "CustomListRecords";
@@ -254,9 +255,9 @@ namespace CustomListPoc
             if (adjustForIteration)
             {
                 // We're just counting by 1's in base max_column, but things aren't 0 relative.
-                int rowcol = (row - 1) * max_column + (column - 1) + (iteration - 1);
-                row = (rowcol / max_column) + 1;
-                column = (column % max_column) + 1;
+                int rowcol = row * max_column + (column - 1) + (iteration - 1);
+                row = (rowcol / max_column);
+                column = (rowcol % max_column) + 1;
             }
 
             return (row, column);
@@ -270,7 +271,7 @@ namespace CustomListPoc
             }
                 
             if (adjustForIteration)
-                digit = ((digit + (iteration-1) % 9)) + 1;
+                digit = digit + ((iteration-1) % 9);
 
             string phonyGuid = new string(digit.ToString()[0], 32);
 
@@ -296,7 +297,7 @@ namespace CustomListPoc
             }
         }
 
-        private static (Key, Value) MakeImportRecord(string operation, Guid listGuid, int listNum, int recNo, int columns)
+        private static async Task<(Key, Value)> MakeImportRecord(string operation, Guid listGuid, int listNum, int recNo, int columns)
         {
             GuidToParts(listGuid, out ulong part1, out ulong part2);
 
@@ -310,53 +311,106 @@ namespace CustomListPoc
                 ListKey = $"List{listNum}Rec{recNo}"
             };
 
-            string fldVal = $"{operation} {DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}";
+            Value value = new Value();
 
-            Value value = new Value()
+            for (int i = 1; i <= 10; i++)
             {
-                Column1 = fldVal,
-                Column2 = columns >= 2 ? fldVal : null,
-                Column3 = columns >= 3 ? fldVal : null,
-                Column4 = columns >= 4 ? fldVal : null,
-                Column5 = columns >= 5 ? fldVal : null,
-                Column6 = columns >= 6 ? fldVal : null,
-                Column7 = columns >= 7 ? fldVal : null,
-                Column8 = columns >= 8 ? fldVal : null,
-                Column9 = columns >= 9 ? fldVal : null,
-                Column10 = columns >= 10 ? fldVal : null,
-            };
+                string columnValue = columns >= i ? $"{operation} Col {i} {DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}" : "";
+                typeof(Value).GetProperty($"Column{i}")?.SetValue(value, columnValue);
+            }
+
+            await Task.Delay(0);
 
             return (key, value);
         }
 
-        public const string EnvironmentVip = "https://objectstorefd.prod.westus2.binginternal.com:443/sds/ObjectStoreQuery/V1";
+        private static async Task<(Key, Value)> MakeUpsertRecord(string operation, Guid listGuid, int listNum, int recNo, int columns)
+        {
+            var key = MakeRowKey(listGuid, listNum, recNo);
+
+            var value = (await Read(new[] { key })).FirstOrDefault() ?? new Value();
+
+            for (int i = 1; i <= columns; i++)
+            {
+                string columnValue = $"{operation} Col {i} {DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}";
+                typeof(Value).GetProperty($"Column{i}")?.SetValue(value, columnValue);
+            }
+
+            return (key, value);
+        }
+
+
+        public const string EnvironmentVip = "https://objectstorebingfd.prod.westus2.binginternal.com:443/sds"; // https://objectstorefd.prod.westus2.binginternal.com:443/sds/ObjectStoreQuery/V1";
         // Use https://objectstorebingfd.prod.westus2.binginternal.com:443/sds URL when code is downloaded/executed from devbox or internet (not AP backend). See more details here: https://eng.ms/docs/experiences-devices/webxt/search-content-platform/objectstore/objectstore/objectstore-public-wiki/getting-started/pf-environments
         // prod "https://objectstorebingfd.prod.westus2.binginternal.com:443/sds";
 
-        private static void BulkWriter(string operation, int list, Guid listGuid, int startRow, int rows, int columns )
+        private static async Task DoBulkWrite(string operation, int list, Guid listGuid, int startRow, int rows, int columns, Func<string, Guid, int, int, int, Task<(Key, Value)>> recordGenerator)
         {
+            Stopwatch stopwatch = Stopwatch.StartNew();
+            stopwatch.Stop();
+            stopwatch.Reset();
             var locations = new List<ITableLocation>
             {
                 new VIP(EnvironmentVip)
             };
 
             // The loader will use 20 keys per request, 20 simultenous requests, 10000 ms of timeout per request and a limit of 1000 keys per second
-            var config = new DataLoadConfiguration(locations, NamespaceName, TableName, 20, 20, 2, 10000, 1000, true);
+            var config = new DataLoadConfiguration(locations, NamespaceName, TableName, 20, 20, 2, 10000, 1000, true).WithClientCertificates(Certificates);
             using (var loader = new DataLoader(config))
             {
                 for (int recNo = startRow; recNo < startRow + rows; recNo++)
                 {
-                    (var key, var value) = MakeImportRecord(operation, listGuid, list, recNo, columns);
+                    (var key, var value) = await recordGenerator(operation, listGuid, list, recNo, columns);
                     object context = recNo;
+                    stopwatch.Start();
                     loader.Send(key, value, context);
                     var results = loader.Receive(waitForAllRequests: false);
+                    stopwatch.Stop();
                     LogResults(results);
                 }
 
+                stopwatch.Start();
                 loader.Flush();
                 var finalResults = loader.Receive(waitForAllRequests: true);
+                stopwatch.Stop();
                 LogResults(finalResults);
             }
+            Stats.Add((operation, stopwatch.ElapsedMilliseconds, 0));
+        }
+
+        private static async Task DoBulkDelete(string operation, int list, Guid listGuid, int startRow, int rows, Func<Guid, int, int, Key> keyGenerator)
+        {
+            Stopwatch stopwatch = Stopwatch.StartNew();
+            stopwatch.Stop();
+            stopwatch.Reset();
+            var locations = new List<ITableLocation>
+            {
+                new VIP(EnvironmentVip)
+            };
+
+            // The loader will use 20 keys per request, 20 simultenous requests, 10000 ms of timeout per request and a limit of 1000 keys per second
+            var config = new DataLoadConfiguration(locations, NamespaceName, TableName, 20, 20, 2, 10000, 1000, true).WithClientCertificates(Certificates);
+            using (var loader = new DataLoader(config))
+            {
+                for (int recNo = startRow; recNo < startRow + rows; recNo++)
+                {
+                    var key = keyGenerator(listGuid, list, recNo);
+                    object context = recNo;
+                    stopwatch.Start();
+                    loader.Delete(key, context);
+                    var results = loader.Receive(waitForAllRequests: false);
+                    stopwatch.Stop();
+                    LogResults(results);
+                }
+
+                stopwatch.Start();
+                loader.Flush();
+                var finalResults = loader.Receive(waitForAllRequests: true);
+                stopwatch.Stop();
+                LogResults(finalResults);
+            }
+            Stats.Add((operation, stopwatch.ElapsedMilliseconds, 0));
+            await Task.Delay(0);
         }
 
         private static async Task BulkImporter(int list)
@@ -367,12 +421,10 @@ namespace CustomListPoc
 
             Console.WriteLine($"Bulk Importing {rows} Rows and {columns} Columns into List {listGuid}");
 
-            BulkWriter("import", list, listGuid, 1, rows, columns);
-
-            await Task.Delay(0);
+            await DoBulkWrite("import", list, listGuid, 1, rows, columns, MakeImportRecord);
         }
 
-        // Upsert n rows starting at existing row n
+        // Upsert values into the first n columns of n rows starting at row n
         private static async Task BulkUpserter(int list)
         {
             (int rows, int columns) = RequireRowsAndColumns();
@@ -383,11 +435,22 @@ namespace CustomListPoc
 
             Console.WriteLine($"Bulk Upserting {rows} Rows into List {listGuid}");
 
-            BulkWriter("upsert", list, listGuid, row, rows, columns);
-            await Task.Delay(0);
+            await DoBulkWrite("upsert", list, listGuid, row, rows, columns, MakeUpsertRecord);
         }
 
         private static async Task BulkDeleter(int list)
+        {
+            int rows = RequireRows();
+
+            Guid listGuid = RequireValidList(list, true);
+
+            Console.WriteLine($"Bulk Deleting {rows} Rows  from List {listGuid}");
+
+            await DoBulkDelete("bulk delete", list, listGuid, 1, rows, MakeRowKey);
+        }
+
+
+        private static async Task BulkDeleter2(int list)
         {
             Guid listGuid = RequireValidList(list, true);
 
@@ -443,9 +506,7 @@ namespace CustomListPoc
 
             var key = MakeRowKey(listGuid, list, row);
 
-            var values = await Read(new[] { key });
-
-            var value = values.FirstOrDefault();
+            var value = (await Read(new[] { key })).FirstOrDefault();
 
             return (key, value);
         }
@@ -454,36 +515,49 @@ namespace CustomListPoc
         {
             (int row, int column) = RequireRowAndColumn(true);
             Guid listGuid = RequireValidList(list);
+            string colVal = string.Empty;
 
             (var key, var value) = await DoRead(listGuid, list, row, column);
 
-            string colVal = (string)typeof(Value).GetProperty("Column{column}").GetValue(value);
-
-            Console.WriteLine($"Key {key.ListKey} Value {colVal}");
+            if (value != null)
+            {
+                colVal = (string)typeof(Value).GetProperty($"Column{column}").GetValue(value);
+                Console.WriteLine($"Key {key.ListKey} Value {colVal}");
+            }
+            else
+            {
+                Console.WriteLine($"Key {key.ListKey} Not found.");
+            }
         }
 
         private static async Task Updater(int list)
         {
             (int row, int column) = RequireRowAndColumn(true);
             Guid listGuid = RequireValidList(list);
+            string oldValue = string.Empty;
 
             Console.WriteLine($"Updating Row {row}, Column {column} of List {listGuid}");
 
             (var key, var value) = await DoRead(listGuid, list, row, column);
 
-            string oldValue = (string)typeof(Value).GetProperty("Column{column}").GetValue(value);
+            if (value != null)
+            {
+                oldValue = (string)typeof(Value).GetProperty($"Column{column}").GetValue(value);
 
-            string newValue = $"update {DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}";
+                string newValue = $"update Col {column} {DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}";
 
-            typeof(Value)
-                .GetProperty($"Column{column}")
-                .SetValue(value, newValue);
+                typeof(Value)
+                    .GetProperty($"Column{column}")
+                    .SetValue(value, newValue);
 
-            KeyValuePair<Key, Value> kvp = new KeyValuePair<Key, Value>(key, value);
+                KeyValuePair<Key, Value> kvp = new KeyValuePair<Key, Value>(key, value);
 
-            await Write(new[] { kvp });
+                await Write(new[] { kvp });
 
-            Console.WriteLine($"Key {key.ListKey} Old Value {oldValue} New Value {newValue}");
+                Console.WriteLine($"Key {key.ListKey} Old Value {oldValue} New Value {newValue}");
+            }
+            else
+                Console.WriteLine($"Key {key.ListKey} Nothing found to update.");
         }
 
         private static async Task Deleter(int list)
@@ -543,17 +617,18 @@ namespace CustomListPoc
             // Define options
             app.HelpOption("-? | --help");
 
-            AddCommandOption(app, "import-list", "Specify which list Guid to import. Increments each iteration.", BulkImporter);
-            AddCommandOption(app, "delete-list", "Specify which list to delete. Increments each iteration.", BulkReader);
+            AddCommandOption(app, "bulk-import", "Uses Point Dataloader. Specify which list Guid to import. Imports n rows and n columns. Increments list each iteration.", BulkImporter);
+            AddCommandOption(app, "bulk-upsert", "Uses Point Dataloader. Specify which list to upsert keys into. Upserts n rows and n columns starting at given row", BulkUpserter);
+            AddCommandOption(app, "bulk-delete", "Uses Point Dataloader. Specify which list to delete keys from. Deletes n rows. Increments list each iteration.", BulkDeleter);
             AddCommandOption(app, "read-keys", "Specify which list to read keys from. Increments each iteration", BulkReader);
-            AddCommandOption(app, "upsert-keys", "Specify which list to read keys from", BulkUpserter);
-            AddCommandOption(app, "rows", "How many rows");
-            AddCommandOption(app, "columns", "How many columns");
+            AddCommandOption(app, "delete-list", "Uses Range Queries. Specify which list to delete. Increments list each iteration.", BulkDeleter2);
             AddCommandOption(app, "read-key", "Reads the key at row/col from list n", Reader);
             AddCommandOption(app, "update-key", "Reads and updates the key at row/col from list", Updater);
             AddCommandOption(app, "delete-key", "Deletes the key at row/col from list n", Deleter);
+            AddCommandOption(app, "rows", "How many rows");
+            AddCommandOption(app, "columns", "How many columns");
             AddCommandOption(app, "row", $"Operates on the key at the given row. Column increments each iteration until {max_column}, then row.");
-            AddCommandOption(app, "col", $"Operates on the key at the given col. Column increments each iteration until , {max_column} then row.");
+            AddCommandOption(app, "column", $"Operates on the key at the given col. Column increments each iteration until {max_column}, then row.");
             AddCommandOption(app, "iterations", "Specificy Number of Iterations");
             AddCommandOption(app, "wait", "Wait for n miliseconds after each operation");
 
