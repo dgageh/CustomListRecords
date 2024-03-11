@@ -184,7 +184,7 @@ namespace CustomListPoc
                 osNamespace: NamespaceName,
                 osTable: TableName,
                 timeout: TimeSpan.FromMilliseconds(2000),
-                maxRetries: 0)//.WithClientVersion(ClientVersion.V2)
+                maxRetries: 0).WithClientVersion(ClientVersion.V2)
                 ;
 
 
