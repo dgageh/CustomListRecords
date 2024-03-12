@@ -1,0 +1,29 @@
+namespace ListMgmt;
+
+struct BondGuid
+{
+    0: required uint64 High;
+    1: required uint64 Low;
+}
+struct PartitionedKeyFields
+{
+    0: required BondGuid TenantId;
+    1: required BondGuid EnvironmentId;
+    2: required BondGuid ListId;
+}
+
+[SortableEncoding("1.0")]
+struct Key
+{
+    [KeyMetadata("PartitionKey")]
+    0: required PartitionedKeyFields Ids;
+
+    1: required uint8 RecType;
+    2: required int8 Revision;
+    3: required string ListKey;
+}
+
+struct Value 
+{
+    0: required blob JsonData;
+}

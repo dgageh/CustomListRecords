@@ -11,7 +11,6 @@ using Microsoft.ObjectStore;
 using Microsoft.Identity.Client;
 using Microsoft.Extensions.CommandLineUtils;
 using System.IdentityModel.Metadata;
-using CustomList;
 using Guid = System.Guid;
 using System.Windows.Forms;
 using System.Drawing.Text;
@@ -19,9 +18,13 @@ using System.Data.Common;
 using System.Net;
 using System.Diagnostics;
 using ObjectStoreWireProtocol;
+using ListMgmt;
+using Newtonsoft.Json;
+using Bond.Tag;
+using System.Text;
 
 
-namespace CustomListPoc
+namespace ListMgmt
 {
     class Program
     {
@@ -40,8 +43,68 @@ namespace CustomListPoc
         public static ClientInstrumentation instrumentation = new ClientInstrumentation();
         public static List<(string Operation, long TotalLatency, long ServerSideLatency)> Stats = new List<(string Operation, long TotalLatency, long ServerSideLatency)>();
 
-        public static int iteration = 0;
-        public const int max_column = 10;
+
+
+        class Configuration
+        {
+            public Configuration(int tenant, int environment, int list)
+            {
+                Tenant = tenant;
+                Environment = environment;
+                List = list;
+            }
+            public int Tenant { get; set; }
+            public int Environment { get; set; }
+            public int List { get; set; }
+        }
+        // All the possible combinations of of environmentid, tenantid, listguid.  The index of this is the argument to the commands.
+        static Configuration[] configurations = new Configuration[]
+        {
+            new Configuration(1,1,1),
+            new Configuration(1,2,3),
+            new Configuration(1,3,4),
+            new Configuration(1,4,5),
+            new Configuration(2,1,6),
+            new Configuration(2,2,7),
+            new Configuration(2,3,8),
+            new Configuration(3,4,9),
+            new Configuration(3,1,10),
+            new Configuration(3,2,11),
+            new Configuration(3,3,12),
+            new Configuration(3,4,13),
+        };
+   
+        
+        enum RecordType
+        {
+            ListSchema,
+            ListRow,
+            ListRevisionNum,
+            ListCandidateRevision
+        }
+
+        struct ListRow
+        {
+            public string[] Vals; 
+        };
+
+        internal class ListRevisionNum
+        {
+            public byte Rev {  get; set; }
+        }
+        
+        internal class ListCandidateRevisionNum
+        {
+            public byte Rev { get; set; }
+        }
+
+        internal class ListSchema
+        {
+            public string[] Cols { get; set; }
+            public string Key   {  get; set; }
+            public int ColumnCount {  get; set; }
+        }
+
 
         static void GuidToParts(Guid guid, out ulong part1, out ulong part2)
         {
@@ -184,7 +247,7 @@ namespace CustomListPoc
                 osNamespace: NamespaceName,
                 osTable: TableName,
                 timeout: TimeSpan.FromMilliseconds(2000),
-                maxRetries: 0).WithClientVersion(ClientVersion.V2)
+                maxRetries: 0)//.WithClientVersion(ClientVersion.V2)
                 ;
 
 
@@ -229,9 +292,9 @@ namespace CustomListPoc
         {
             int cols = myCommands["--columns"].Value;
 
-            if (cols <= 0 || cols > max_column)
+            if (cols <= 0)
             {
-                throw new ArgumentException($"--columns must be specified > 0 and <= {max_column}");
+                throw new ArgumentException($"--columns must be specified > 0");
             }
             return cols;
         }
@@ -240,9 +303,9 @@ namespace CustomListPoc
         {
             int col = myCommands["--column"].Value;
 
-            if (col <= 0 || col > max_column)
+            if (col <= 0)
             {
-                throw new ArgumentException($"--column must be specified > 0 and <= {max_column}");
+                throw new ArgumentException($"--column must be specified > 0");
             }
             return col;
         }
@@ -259,36 +322,46 @@ namespace CustomListPoc
             return row;
         }
 
-        private static (int, int) RequireRowAndColumn(bool adjustForIteration = false)
+        private static (int, int) RequireRowAndColumn()
         {
             int row = RequireRow();
             int column = RequireColumn();
 
-            if (adjustForIteration)
-            {
-                // We're just counting by 1's in base max_column, but things aren't 0 relative.
-                int rowcol = row * max_column + (column - 1) + (iteration - 1);
-                row = (rowcol / max_column);
-                column = (rowcol % max_column) + 1;
-            }
-
             return (row, column);
         }
 
-        private static Guid RequireValidList(int digit, bool adjustForIteration=false)
+        private static Guid GuidFromInt(string type, int digit)
         {
             if (digit < 1 || digit > 9)
             {
-                throw new ArgumentException("List id must be in the range 1-9.");
+                throw new ArgumentException($"{type} id must be in the range 1-9.");
             }
-                
-            if (adjustForIteration)
-                digit = digit + ((iteration-1) % 9);
 
             string phonyGuid = new string(digit.ToString()[0], 32);
 
             // Convert the string into a GUID format: "00000000-0000-0000-0000-000000000000"
             return new Guid(phonyGuid.Insert(8, "-").Insert(13, "-").Insert(18, "-").Insert(23, "-"));
+        }
+        private static Guid RequireValidList(int digit)
+        {
+            return GuidFromInt("List", digit);
+        }
+        private static Guid RequireValidTenant(int digit)
+        {
+            return GuidFromInt("Tenant", digit);
+        }
+        private static Guid RequireValidEnvironment(int digit)
+        {
+            return GuidFromInt("Environment", digit);
+        }
+
+        private static (Guid tenandId, Guid environmentId, Guid listGuid) RequireValidKeyFields(int tenant, int environment, int list)
+        {
+            Guid listGuid = RequireValidList(list);
+            Guid environmentId = RequireValidEnvironment(environment);
+            Guid tenantId = RequireValidTenant(tenant);
+
+            return (tenantId, environmentId, listGuid);
         }
 
         static void LogResults(IEnumerable<IDataLoadResult> results)
@@ -309,58 +382,91 @@ namespace CustomListPoc
             }
         }
 
-        private static async Task<(Key, Value)> MakeImportRecord(string operation, Guid listGuid, int listNum, int recNo, int columns)
+        private static string MakeSchemaRecord(Guid tenantId, Guid environmentId, Guid listGuid, int columns)
         {
-            GuidToParts(listGuid, out ulong part1, out ulong part2);
-
-            Key key = new Key()
+            string columnValue = string.Empty;
+            ListSchema schema = new ListSchema()
             {
-                ListId = new CustomList.Guid
-                {
-                    ListIdHigh = part1,
-                    ListIdLow = part2
-                },
-                ListKey = $"List{listNum}Rec{recNo}"
+                Cols = new string[columns],
+                ColumnCount = columns,
             };
 
+            for (int i = 1; i <= columns; i++)
+            {
+                schema.Cols[i] = $"List{listGuid}Col{i}";
+            }
+            schema.Key = schema.Cols[0];
+            return columnValue;
+        }
+
+        private static string MakeSchemaRecord(string operation, Guid tenantId, Guid environmentId, Guid listGuid, int columns)
+        {
+            string columnValue = string.Empty;
+            ListSchema schema = new ListSchema()
+            {
+                Cols = new string[columns],
+                ColumnCount = columns,
+            };
+
+            for (int i = 0; i < columns; i++)
+            {
+                schema.Cols[i] = $"List{listGuid}Col{i}";
+            }
+            columnValue = JsonConvert.SerializeObject(schema);
+            return columnValue;
+        }
+        private static string MakeListRecord(string operation, Guid tenantId, Guid environmentId, Guid listGuid, int columns)
+        {
+            string columnValue = string.Empty;
+            ListRow rec = new ListRow()
+            {
+                Vals = new string[columns],
+            };
+
+            for (int i = 0; i < columns; i++)
+            {
+                rec.Vals[i] = $"{operation} Col {i} {DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}";
+            }
+            columnValue = JsonConvert.SerializeObject(rec);
+            return columnValue;
+        }
+
+        private static async Task<(Key, Value)> MakeImportRecord(string operation, Guid tenantId, Guid environmentId, Guid listGuid, int recNo, int columns)
+        {
+            var key = MakeRowKey(tenantId, environmentId, listGuid, recNo);
+            
             Value value = new Value();
 
             string columnValue = string.Empty;
-
-            for (int i = 1; i <= 10; i++)
+            if (recNo == 0)
             {
-                if (recNo == 0)  // The schema record
-                {
-                    string columnPrefix = myCommands["--column-prefix"].StringValue;
-                    if (columnPrefix == string.Empty)
-                    {
-                        columnPrefix = "L"; 
-                    }
-                    columnValue = columns >= i ? $"{columnPrefix}{listNum}Col{i}" : "";
-                }
-                else
-                {
-                    columnValue = columns >= i ? $"{operation} Col {i} {DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}" : "";
-                }
-                typeof(Value).GetProperty($"Column{i}")?.SetValue(value, columnValue);
+                columnValue = MakeSchemaRecord(tenantId, environmentId, listGuid, columns);
             }
+            else
+            {
+                columnValue = MakeListRecord(operation, tenantId, environmentId, listGuid, columns);
+            }
+            value.JsonData = new BondBlob(Encoding.UTF8.GetBytes(columnValue));    // Not sure what the right encoding is here.
 
             await Task.Delay(0);
 
             return (key, value);
         }
 
-        private static async Task<(Key, Value)> MakeUpsertRecord(string operation, Guid listGuid, int listNum, int recNo, int columns)
+        private static async Task<(Key, Value)> MakeUpsertRecord(string operation, Guid tenantId, Guid environmentId, Guid listGuid, int recNo, int columns)
         {
-            var key = MakeRowKey(listGuid, listNum, recNo);
+            var key = MakeRowKey(tenantId, environmentId, listGuid, recNo);
 
             var value = (await Read(new[] { key })).FirstOrDefault() ?? new Value();
 
-            for (int i = 1; i <= columns; i++)
+            var rec = JsonConvert.DeserializeObject<string[]>(value.JsonData.ToString());
+
+            for (int i = 0; i < columns; i++)
             {
-                string columnValue = $"{operation} Col {i} {DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}";
-                typeof(Value).GetProperty($"Column{i}")?.SetValue(value, columnValue);
+                rec[i] = $"{operation} Col {i} {DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}";
             }
+
+            value.JsonData = new BondBlob(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(rec)));
 
             return (key, value);
         }
@@ -370,7 +476,7 @@ namespace CustomListPoc
         // Use https://objectstorebingfd.prod.westus2.binginternal.com:443/sds URL when code is downloaded/executed from devbox or internet (not AP backend). See more details here: https://eng.ms/docs/experiences-devices/webxt/search-content-platform/objectstore/objectstore/objectstore-public-wiki/getting-started/pf-environments
         // prod "https://objectstorebingfd.prod.westus2.binginternal.com:443/sds";
 
-        private static async Task DoBulkWrite(string operation, int list, Guid listGuid, int startRow, int rows, int columns, Func<string, Guid, int, int, int, Task<(Key, Value)>> recordGenerator)
+        private static async Task DoBulkWrite(string operation, Guid tenantId, Guid environmentId, Guid listGuid, int startRow, int rows, int columns, Func<string, Guid, Guid, Guid, int, int, Task<(Key, Value)>> recordGenerator)
         {
             Stopwatch stopwatch = Stopwatch.StartNew();
 
@@ -382,15 +488,13 @@ namespace CustomListPoc
                 new VIP(EnvironmentVip)
             };
 
-
-
             // The loader will use 20 keys per request, 20 simultenous requests, 10000 ms of timeout per request and a limit of 1000 keys per second
             var config = new DataLoadConfiguration(locations, NamespaceName, TableName, 20, 20, 2, 10000, 1000, true).WithClientCertificates(Certificates);
             using (var loader = new DataLoader(config))
             {
                 for (int recNo = startRow; recNo < endRow; recNo++)
                 {
-                    (var key, var value) = await recordGenerator(operation, listGuid, list, recNo, columns);
+                    (var key, var value) = await recordGenerator(operation, tenantId, environmentId, listGuid, recNo, columns);
                     object context = recNo;
                     stopwatch.Start();
                     loader.Send(key, value, context);
@@ -408,7 +512,7 @@ namespace CustomListPoc
             Stats.Add((operation, stopwatch.ElapsedMilliseconds, 0));
         }
 
-        private static async Task DoBulkDelete(string operation, int list, Guid listGuid, int startRow, int rows, Func<Guid, int, int, Key> keyGenerator)
+        private static async Task DoBulkDelete(string operation, Guid tenantId, Guid environmentId, Guid listGuid, int startRow, int rows, Func<Guid, Guid, Guid, int, Key> keyGenerator)
         {
             Stopwatch stopwatch = Stopwatch.StartNew();
             stopwatch.Stop();
@@ -424,7 +528,7 @@ namespace CustomListPoc
             {
                 for (int recNo = startRow; recNo < startRow + rows; recNo++)
                 {
-                    var key = keyGenerator(listGuid, list, recNo);
+                    var key = keyGenerator(tenantId, environmentId, listGuid, recNo);
                     object context = recNo;
                     stopwatch.Start();
                     loader.Delete(key, context);
@@ -443,48 +547,48 @@ namespace CustomListPoc
             await Task.Delay(0);
         }
 
-        private static async Task BulkImporter(int list)
+        private static async Task BulkImporter(int tenant, int environment, int list)
         {
             (int rows, int columns) = RequireRowsAndColumns();
 
             RequireColumnPrefix();
 
-            Guid listGuid = RequireValidList(list, true);
+            (var tenantId, var environmentId, var listGuid) = RequireValidKeyFields(tenant, environment, list);
 
-            Console.WriteLine($"Bulk Importing {rows} Rows and {columns} Columns into List {listGuid}");
+            Console.WriteLine($"Bulk Importing {rows} Rows and {columns} Columns into Tenant {tenantId} Environment {environmentId} List {listGuid}");
 
-            await DoBulkWrite("import", list, listGuid, 0, rows, columns, MakeImportRecord);  // Starts at 0.  Create the schema record.
+            await DoBulkWrite("import", environmentId, tenantId, listGuid, 0, rows, columns, MakeImportRecord);  // Starts at 0.  Create the schema record.
         }
 
         // Upsert values into the first n columns of n rows starting at row n
-        private static async Task BulkUpserter(int list)
+        private static async Task BulkUpserter(int tenant, int envivronment, int list)
         {
             (int rows, int columns) = RequireRowsAndColumns();
 
             int row = RequireRow();
 
-            Guid listGuid = RequireValidList(list, true);
+            (var tenantId, var environmentId, var listGuid) = RequireValidKeyFields(tenant, envivronment, list);
 
-            Console.WriteLine($"Bulk Upserting {rows} Rows into List {listGuid}");
+            Console.WriteLine($"Bulk Upserting {rows} Rows into Tenant {tenantId} Environment {environmentId} List {listGuid}");
 
-            await DoBulkWrite("upsert", list, listGuid, row, rows, columns, MakeUpsertRecord);
+            await DoBulkWrite("upsert", environmentId, tenantId, listGuid, row, rows, columns, MakeUpsertRecord);
         }
 
-        private static async Task BulkDeleter(int list)
+        private static async Task BulkDeleter(int tenant, int environment, int list)
         {
             int rows = RequireRows();
 
-            Guid listGuid = RequireValidList(list, true);
+            (var tenantId, var environmentId, var listGuid) = RequireValidKeyFields(tenant, environment, list);
 
-            Console.WriteLine($"Bulk Deleting {rows} Rows  from List {listGuid}");
+            Console.WriteLine($"Bulk Deleting {rows} Rows  from Tenant {tenantId} Environment {environmentId} List {listGuid}");
 
-            await DoBulkDelete("bulk delete", list, listGuid, 1, rows, MakeRowKey);
+            await DoBulkDelete("bulk delete", environmentId, tenantId, listGuid, 1, rows, MakeRowKey);
         }
 
         // Delete the whole list -- even the schema.
-        private static async Task BulkDeleter2(int list)
+        private static async Task BulkDeleter2(int tenant, int environment, int list)
         {
-            Guid listGuid = RequireValidList(list, true);
+            (var tenantId, var environmentId, var listGuid) = RequireValidKeyFields(tenant, environment, list);
 
             Console.WriteLine($"Bulk Deleting List {listGuid}");
 
@@ -494,34 +598,50 @@ namespace CustomListPoc
         }
 
 
-        private static Key MakeRowKey(Guid listGuid, int listNum, int recNo) // Rec0 is the schema (the field names)
+        private static Key MakeRowKey(Guid tenantId, Guid environmentId, Guid listGuid, int recNo) // Rec0 is the schema (the field names)
         {
-            GuidToParts(listGuid, out ulong part1, out ulong part2);
-
+ 
+            GuidToParts(listGuid, out ulong listPart1, out ulong listPart2);
+            GuidToParts(environmentId, out ulong envPart1, out ulong envPart2);
+            GuidToParts(tenantId, out ulong tenantPart1, out ulong tenantPart2);
             Key key = new Key()
             {
-                ListId = new CustomList.Guid
+                Ids = new PartitionedKeyFields()
                 {
-                    ListIdHigh = part1,
-                    ListIdLow = part2
+                    ListId = new BondGuid()
+                    {
+                        High = listPart1,
+                        Low = listPart2,
+                    },
+                    TenantId = new BondGuid()
+                    {
+                        High = tenantPart1,
+                        Low = tenantPart2,
+                    },
+                    EnvironmentId = new BondGuid()
+                    {
+                        High = envPart1,
+                        Low = envPart2,
+                    }
                 },
-                ListKey = $"List{listNum}Rec{recNo}"
+                ListKey = $"Tenant{tenantId}Environment{environmentId}List{listGuid}Rec{recNo}",
+                RecType = Convert.ToByte(recNo == 0 ? RecordType.ListSchema : RecordType.ListRow),
             };
 
             return key;
         }
 
-        private static async Task BulkReader(int list)
+        private static async Task BulkReader(int tenant, int environment, int list)
         {
             int rows = RequireRows();
 
-            Guid listGuid = RequireValidList(list, true);
+            (var tenantId, var environmentId, var listGuid) = RequireValidKeyFields(tenant, environment, list);
 
             Console.WriteLine($"Bulk Reading the first {rows} Keys from List {listGuid}");
             List<Key> keys = new List<Key>(rows);
             for (int row = 0; row <= rows; row++)
             {
-                keys.Add(MakeRowKey(listGuid, list, row));
+                keys.Add(MakeRowKey(tenantId, environmentId, listGuid, row));
             }
 
             var values = await Read(keys);
@@ -536,24 +656,25 @@ namespace CustomListPoc
             }
         }
 
-        private static async Task<(Key key, Value value)> DoRead(Guid listGuid, int list, int row, int column)
+        private static async Task<(Key key, Value value)> DoRead(Guid tenantId, Guid environmentId, Guid listGuid, int row, int column)
         {
             Console.WriteLine($"Reading Row {row}, Column {column} from List {listGuid}");
 
-            var key = MakeRowKey(listGuid, list, row);
+            var key = MakeRowKey(tenantId, environmentId, listGuid, row);
 
             var value = (await Read(new[] { key })).FirstOrDefault();
 
             return (key, value);
         }
 
-        private static async Task Reader(int list)
+        private static async Task Reader(int tenant, int environment, int list)
         {
-            (int row, int column) = RequireRowAndColumn(true);
-            Guid listGuid = RequireValidList(list);
+            (int row, int column) = RequireRowAndColumn();
+            (var tenantId, var environmentId, var listGuid) = RequireValidKeyFields(tenant, environment, list); 
+            
             string colVal = string.Empty;
 
-            (var key, var value) = await DoRead(listGuid, list, row, column);
+            (var key, var value) = await DoRead(tenantId, environmentId, listGuid, row, column);
 
             if (value != null)
             {
@@ -566,17 +687,19 @@ namespace CustomListPoc
             }
         }
 
-        private static async Task Updater(int list)
+        private static async Task Updater(int tenant, int environment, int list)
         {
-            (int row, int column) = RequireRowAndColumn(true);
-            Guid listGuid = RequireValidList(list);
+            (int row, int column) = RequireRowAndColumn();
+
+            (var tenantId, var environmentId, var listGuid) = RequireValidKeyFields(tenant, environment, list); 
+
             string oldValue = string.Empty;
 
             Console.WriteLine($"Updating Row {row}, Column {column} of List {listGuid}");
 
-            (var key, var value) = await DoRead(listGuid, list, row, column);
+            (var key, var value) = await DoRead(tenantId, environmentId, listGuid, row, column);
 
-            if (value != null)
+            if (value != null)  //TODO
             {
                 oldValue = (string)typeof(Value).GetProperty($"Column{column}").GetValue(value);
 
@@ -596,22 +719,20 @@ namespace CustomListPoc
                 Console.WriteLine($"Key {key.ListKey} Nothing found to update.");
         }
 
-        private static async Task Deleter(int list)
+        private static async Task Deleter(int tenant, int environment, int list)
         {
             int row = RequireRow();
 
-            row = row + iteration - 1;
+            (var tenantId, var environmentId, var listGuid) = RequireValidKeyFields(tenant, environment, list);
 
-            Guid listGuid = RequireValidList(list);
+            var key = MakeRowKey(tenantId, environmentId, listGuid, row);
 
-            var key = MakeRowKey(listGuid, list, row);
-
-            Console.WriteLine($"Deleting Row {row} of List {listGuid} Key {key.ListKey}");
+            Console.WriteLine($"Deleting Row {row} of Tenant {tenantId} Environment {environmentId} List {listGuid} Key {key.ListKey}");
 
             await Delete(new[] { key });
         }
 
-        private static async Task<bool> TryInvoke(string command, Func<int, Task> function)
+        private static async Task<bool> TryInvoke(string command, Func<int, int, int, Task> function)
         {
             try
             {
@@ -620,7 +741,8 @@ namespace CustomListPoc
                 if (argument > 0)
                 {
                     await Waiter();
-                    await function(argument);
+
+                    await function(configurations[argument].Tenant, configurations[argument].Environment, configurations[argument].List);
                     Console.WriteLine($"{command} executed successfully.");
                     return true;
                 }
@@ -639,11 +761,11 @@ namespace CustomListPoc
             public bool IsNumeric { get; set; }
             public int Value { get; set; }
             public string StringValue { get; set; }
-            public Func<int, Task> Implementer { get; set; }
+            public Func<int, int, int, Task> Implementer { get; set; }
         }
         static Dictionary<string, MyCommandOptions> myCommands = new Dictionary<string, MyCommandOptions>();
 
-        static void AddCommandOption(CommandLineApplication app, bool isNumeric, string command, string description, Func<int, Task> implementer = null)
+        static void AddCommandOption(CommandLineApplication app, bool isNumeric, string command, string description, Func<int, int, int, Task> implementer = null)
         {
             string cmdLineOption = $"--{command}";
             var option = app.Option(cmdLineOption, description, CommandOptionType.SingleValue);
@@ -657,20 +779,18 @@ namespace CustomListPoc
             // Define options
             app.HelpOption("-? | --help");
 
-            AddCommandOption(app, true, "bulk-import", "Uses Point Dataloader. Data is generated. Specify which list Guid to import. Imports n rows and n columns. Increments list each iteration.", BulkImporter);
+            AddCommandOption(app, true, "bulk-import", "Uses Point Dataloader. Data is generated. Specify which list Guid to import. Imports n rows and n columns.", BulkImporter);
             AddCommandOption(app, true, "bulk-upsert", "Uses Point Dataloader. Data is generated. Specify which list to upsert keys into. Upserts n rows and n columns starting at given row", BulkUpserter);
-            AddCommandOption(app, true, "bulk-delete", "Uses Point Dataloader. Specify which list to delete keys from. Deletes n rows. Increments list each iteration.", BulkDeleter);
-            AddCommandOption(app, true, "read-keys", "Specify which list to read keys from. Increments each iteration", BulkReader);
-            AddCommandOption(app, true, "delete-list", "Uses Range Queries. Specify which list to delete. Increments list each iteration.", BulkDeleter2);
+            AddCommandOption(app, true, "bulk-delete", "Uses Point Dataloader. Specify which list to delete keys from. Deletes n rows.", BulkDeleter);
+            AddCommandOption(app, true, "read-keys", "Specify which list to read keys from.", BulkReader);
+            AddCommandOption(app, true, "delete-list", "Uses Range Queries. Specify which list to delete.", BulkDeleter2);
             AddCommandOption(app, true, "read-key", "Reads the key at row/col from list n", Reader);
             AddCommandOption(app, true, "update-key", "Reads and updates the key at row/col from list. Data is generated.", Updater);
             AddCommandOption(app, true, "delete-key", "Deletes the key at row/col from list n", Deleter);
-            AddCommandOption(app, false, "column-prefix", "Specifies the 1-8 chaarcter prefix for column names.  Column names are generated in this format: <prefix><l>Col<n>, l is list number, n is column number.");
             AddCommandOption(app, true, "rows", "How many rows");
             AddCommandOption(app, true, "columns", "How many columns");
-            AddCommandOption(app, true, "row", $"Operates on the key at the given row. Column increments each iteration until {max_column}, then row.");
-            AddCommandOption(app, true, "column", $"Operates on the key at the given col. Column increments each iteration until {max_column}, then row.");
-            AddCommandOption(app, true, "iterations", "Specificy Number of Iterations");
+            AddCommandOption(app, true, "row", $"Operates on the key at the given row.");
+            AddCommandOption(app, true, "column", $"Operates on the key at the given col.");
             AddCommandOption(app, true, "wait", "Wait for n miliseconds after each operation");
 
             app.OnExecute(() =>
@@ -719,29 +839,18 @@ namespace CustomListPoc
             CommandLine(args);
 
             var clientBuilder = BuildClient();
-            int iterations = 1;
-
-            if (myCommands["--iterations"].Value > 0)
-            {
-                iterations = myCommands["--iterations"].Value;
-            }
-
             using (client = clientBuilder.Create())
             {
                 Console.WriteLine($"Client version is {client.ClientVersion}");
 
                 try
                 {
-                    for (iteration = 1; iteration <= iterations; iteration++)
+                    foreach (var kvp in myCommands)
                     {
-                        Console.WriteLine($"Iteration: {iteration}");
-                        foreach (var kvp in myCommands)
+                        if (kvp.Value.Implementer != null)
                         {
-                            if (kvp.Value.Implementer != null)
-                            {
-                                if (await TryInvoke(kvp.Key, kvp.Value.Implementer))
-                                    break;  // One command per iteration
-                            }
+                            if (await TryInvoke(kvp.Key, kvp.Value.Implementer))
+                                break;  // One command per execution
                         }
                     }
                 }
@@ -753,7 +862,6 @@ namespace CustomListPoc
 
             PrintStats();
         }
-
 
         public static string BondToJson(IBondSerializable obj)
         {

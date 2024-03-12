@@ -139,9 +139,9 @@
   </ItemGroup>
   <ItemGroup>
     <!--COMPILED_SCHEMAS-->
-    <Compile Include="CompiledSchemas\csharp_proxies.cs" />
-    <Compile Include="CompiledSchemas\csharp_services.cs" />
-    <Compile Include="CompiledSchemas\csharp_types.cs" />
+    <Compile Include="CompiledSchemas\ListMgmt_proxies.cs" />
+    <Compile Include="CompiledSchemas\ListMgmt_services.cs" />
+    <Compile Include="CompiledSchemas\ListMgmt_types.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
