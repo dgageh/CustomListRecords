@@ -22,6 +22,8 @@ using ListMgmt;
 using Newtonsoft.Json;
 using Bond.Tag;
 using System.Text;
+using Bond;
+using Newtonsoft.Json.Linq;
 
 
 namespace ListMgmt
@@ -42,8 +44,6 @@ namespace ListMgmt
         public static Random random = new Random();
         public static ClientInstrumentation instrumentation = new ClientInstrumentation();
         public static List<(string Operation, long TotalLatency, long ServerSideLatency)> Stats = new List<(string Operation, long TotalLatency, long ServerSideLatency)>();
-
-
 
         class Configuration
         {
@@ -73,8 +73,12 @@ namespace ListMgmt
             new Configuration(3,3,12),
             new Configuration(3,4,13),
         };
+
+        public static Guid tenantId = Guid.Empty;
+        public static Guid environmentId = Guid.Empty;
+        public static Guid listGuid = Guid.Empty;
+        public static ushort revision = 0;
    
-        
         enum RecordType
         {
             ListSchema,
@@ -90,12 +94,12 @@ namespace ListMgmt
 
         internal class ListRevisionNum
         {
-            public byte Rev {  get; set; }
+            public ushort Rev {  get; set; }
         }
         
         internal class ListCandidateRevisionNum
         {
-            public byte Rev { get; set; }
+            public ushort Rev { get; set; }
         }
 
         internal class ListSchema
@@ -277,17 +281,6 @@ namespace ListMgmt
             return rows;
         }
 
-        private static void RequireColumnPrefix()
-        {
-            string prefix = myCommands["--column-prefix"].StringValue;
-
-            if (prefix.Length > 8)
-            {
-                throw new ArgumentException("Column prefix must be 8 characters or less");
-            }
-        }
-
-
         private static int RequireColumns()
         {
             int cols = myCommands["--columns"].Value;
@@ -355,13 +348,12 @@ namespace ListMgmt
             return GuidFromInt("Environment", digit);
         }
 
-        private static (Guid tenandId, Guid environmentId, Guid listGuid) RequireValidKeyFields(int tenant, int environment, int list)
+        private static async Task RequireValidKeyFields(int tenant, int environment, int list)
         {
-            Guid listGuid = RequireValidList(list);
-            Guid environmentId = RequireValidEnvironment(environment);
-            Guid tenantId = RequireValidTenant(tenant);
-
-            return (tenantId, environmentId, listGuid);
+            listGuid = RequireValidList(list);
+            environmentId = RequireValidEnvironment(environment);
+            tenantId = RequireValidTenant(tenant);
+            revision = await GetRevision();
         }
 
         static void LogResults(IEnumerable<IDataLoadResult> results)
@@ -382,7 +374,7 @@ namespace ListMgmt
             }
         }
 
-        private static string MakeSchemaRecord(Guid tenantId, Guid environmentId, Guid listGuid, int columns)
+        private static string MakeSchemaRecord(int columns)
         {
             string columnValue = string.Empty;
             ListSchema schema = new ListSchema()
@@ -396,26 +388,11 @@ namespace ListMgmt
                 schema.Cols[i] = $"List{listGuid}Col{i}";
             }
             schema.Key = schema.Cols[0];
-            return columnValue;
-        }
-
-        private static string MakeSchemaRecord(string operation, Guid tenantId, Guid environmentId, Guid listGuid, int columns)
-        {
-            string columnValue = string.Empty;
-            ListSchema schema = new ListSchema()
-            {
-                Cols = new string[columns],
-                ColumnCount = columns,
-            };
-
-            for (int i = 0; i < columns; i++)
-            {
-                schema.Cols[i] = $"List{listGuid}Col{i}";
-            }
             columnValue = JsonConvert.SerializeObject(schema);
             return columnValue;
         }
-        private static string MakeListRecord(string operation, Guid tenantId, Guid environmentId, Guid listGuid, int columns)
+
+        private static string MakeListRecord(string operation, int columns)
         {
             string columnValue = string.Empty;
             ListRow rec = new ListRow()
@@ -431,20 +408,23 @@ namespace ListMgmt
             return columnValue;
         }
 
-        private static async Task<(Key, Value)> MakeImportRecord(string operation, Guid tenantId, Guid environmentId, Guid listGuid, int recNo, int columns)
+
+        // TODO: For imports, he has to increment the revision before he writes anything.
+
+        private static async Task<(Key, Value)> MakeImportRecord(string operation, int recNo, int columns)
         {
-            var key = MakeRowKey(tenantId, environmentId, listGuid, recNo);
+            var key = MakeRowKey(recNo, recNo == 0 ? RecordType.ListSchema : RecordType.ListRow);
             
             Value value = new Value();
 
             string columnValue = string.Empty;
             if (recNo == 0)
             {
-                columnValue = MakeSchemaRecord(tenantId, environmentId, listGuid, columns);
+                columnValue = MakeSchemaRecord(columns);
             }
             else
             {
-                columnValue = MakeListRecord(operation, tenantId, environmentId, listGuid, columns);
+                columnValue = MakeListRecord(operation, columns);
             }
             value.JsonData = new BondBlob(Encoding.UTF8.GetBytes(columnValue));    // Not sure what the right encoding is here.
 
@@ -453,20 +433,20 @@ namespace ListMgmt
             return (key, value);
         }
 
-        private static async Task<(Key, Value)> MakeUpsertRecord(string operation, Guid tenantId, Guid environmentId, Guid listGuid, int recNo, int columns)
+        private static async Task<(Key, Value)> MakeUpsertRecord(string operation, int recNo, int columns)
         {
-            var key = MakeRowKey(tenantId, environmentId, listGuid, recNo);
+            var key = MakeRowKey(recNo, RecordType.ListRow);
 
             var value = (await Read(new[] { key })).FirstOrDefault() ?? new Value();
 
-            var rec = JsonConvert.DeserializeObject<string[]>(value.JsonData.ToString());
+            var listRow = JsonConvert.DeserializeObject<ListRow>(value.JsonData.ToString());
 
             for (int i = 0; i < columns; i++)
             {
-                rec[i] = $"{operation} Col {i} {DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}";
+                listRow.Vals[i] = $"{operation} Col {i} {DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}";
             }
 
-            value.JsonData = new BondBlob(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(rec)));
+            value.JsonData = new BondBlob(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(listRow)));
 
             return (key, value);
         }
@@ -476,7 +456,7 @@ namespace ListMgmt
         // Use https://objectstorebingfd.prod.westus2.binginternal.com:443/sds URL when code is downloaded/executed from devbox or internet (not AP backend). See more details here: https://eng.ms/docs/experiences-devices/webxt/search-content-platform/objectstore/objectstore/objectstore-public-wiki/getting-started/pf-environments
         // prod "https://objectstorebingfd.prod.westus2.binginternal.com:443/sds";
 
-        private static async Task DoBulkWrite(string operation, Guid tenantId, Guid environmentId, Guid listGuid, int startRow, int rows, int columns, Func<string, Guid, Guid, Guid, int, int, Task<(Key, Value)>> recordGenerator)
+        private static async Task DoBulkWrite(string operation, int startRow, int rows, int columns, Func<string, int, int, Task<(Key, Value)>> recordGenerator)
         {
             Stopwatch stopwatch = Stopwatch.StartNew();
 
@@ -494,7 +474,7 @@ namespace ListMgmt
             {
                 for (int recNo = startRow; recNo < endRow; recNo++)
                 {
-                    (var key, var value) = await recordGenerator(operation, tenantId, environmentId, listGuid, recNo, columns);
+                    (var key, var value) = await recordGenerator(operation, recNo, columns);
                     object context = recNo;
                     stopwatch.Start();
                     loader.Send(key, value, context);
@@ -512,7 +492,7 @@ namespace ListMgmt
             Stats.Add((operation, stopwatch.ElapsedMilliseconds, 0));
         }
 
-        private static async Task DoBulkDelete(string operation, Guid tenantId, Guid environmentId, Guid listGuid, int startRow, int rows, Func<Guid, Guid, Guid, int, Key> keyGenerator)
+        private static async Task DoBulkDelete(string operation, int startRow, int rows, Func<int, RecordType, Key> keyGenerator)
         {
             Stopwatch stopwatch = Stopwatch.StartNew();
             stopwatch.Stop();
@@ -528,7 +508,7 @@ namespace ListMgmt
             {
                 for (int recNo = startRow; recNo < startRow + rows; recNo++)
                 {
-                    var key = keyGenerator(tenantId, environmentId, listGuid, recNo);
+                    var key = keyGenerator(recNo, recNo == 0 ? RecordType.ListSchema : RecordType.ListRow);
                     object context = recNo;
                     stopwatch.Start();
                     loader.Delete(key, context);
@@ -547,17 +527,82 @@ namespace ListMgmt
             await Task.Delay(0);
         }
 
+        private static string Context()
+        {
+            return $"Tenant {tenantId} Environment {environmentId} List {listGuid}";
+        }
+
+        private static async Task<ushort> GetRevision()
+        {
+            var key = MakeRowKey(0, RecordType.ListRevisionNum);
+            var value = (await Read(new[] { key })).FirstOrDefault();
+
+            if (value == null)
+                return 0;
+
+            var listRevisionNum = JsonConvert.DeserializeObject<ListRevisionNum>(value.JsonData.ToString());
+
+            if (listRevisionNum == null)
+                return 0;
+
+            return listRevisionNum.Rev;
+        }
+
+        private static async Task SetRevision(bool candidate, ushort rev)
+        {
+            var key = MakeRowKey(0, candidate? RecordType.ListCandidateRevision: RecordType.ListRevisionNum);
+            string serializedRec = string.Empty;
+
+            if (candidate)
+            {
+                var listCandidateRevisionNum = new ListCandidateRevisionNum()
+                {
+                    Rev = rev
+                };
+                serializedRec = JsonConvert.SerializeObject(listCandidateRevisionNum);
+            }
+            else
+            {
+                var listRevisionNum = new ListRevisionNum()
+                {
+                    Rev = rev
+                };
+                serializedRec = JsonConvert.SerializeObject(listRevisionNum);
+
+            }
+            var value = new Value()
+            {
+                JsonData = new BondBlob(Encoding.UTF8.GetBytes(serializedRec))    // Not sure what the right encoding is here.
+            };
+            KeyValuePair<Key, Value> kvp = new KeyValuePair<Key, Value>(key, value);
+
+            await Write(new[] { kvp });
+        }
+
+        private static async Task DeleteCandidateRevision()
+        {
+            var key = MakeRowKey(0, RecordType.ListCandidateRevision);
+
+            await Delete(new[] { key });
+        }
+
         private static async Task BulkImporter(int tenant, int environment, int list)
         {
             (int rows, int columns) = RequireRowsAndColumns();
 
-            RequireColumnPrefix();
+            await RequireValidKeyFields(tenant, environment, list);
 
-            (var tenantId, var environmentId, var listGuid) = RequireValidKeyFields(tenant, environment, list);
+            Console.WriteLine($"Bulk Importing {rows} Rows and {columns} Columns into {Context()}");
 
-            Console.WriteLine($"Bulk Importing {rows} Rows and {columns} Columns into Tenant {tenantId} Environment {environmentId} List {listGuid}");
+            var key = MakeRowKey(0, RecordType.ListRevisionNum);
+            var value = (await Read(new[] { key })).FirstOrDefault();
 
-            await DoBulkWrite("import", environmentId, tenantId, listGuid, 0, rows, columns, MakeImportRecord);  // Starts at 0.  Create the schema record.
+            await SetRevision(true, (ushort)(revision + 1));
+            
+            await DoBulkWrite("import", 0, rows, columns, MakeImportRecord);  // Starts at 0.  Create the schema record.
+
+            await SetRevision(false, (ushort)(revision + 1));
+            await DeleteCandidateRevision();
         }
 
         // Upsert values into the first n columns of n rows starting at row n
@@ -567,30 +612,30 @@ namespace ListMgmt
 
             int row = RequireRow();
 
-            (var tenantId, var environmentId, var listGuid) = RequireValidKeyFields(tenant, envivronment, list);
+           await RequireValidKeyFields(tenant, envivronment, list);
 
-            Console.WriteLine($"Bulk Upserting {rows} Rows into Tenant {tenantId} Environment {environmentId} List {listGuid}");
+            Console.WriteLine($"Bulk Upserting {rows} Rows into {Context()}");
 
-            await DoBulkWrite("upsert", environmentId, tenantId, listGuid, row, rows, columns, MakeUpsertRecord);
+            await DoBulkWrite("upsert", row, rows, columns, MakeUpsertRecord);
         }
 
         private static async Task BulkDeleter(int tenant, int environment, int list)
         {
             int rows = RequireRows();
 
-            (var tenantId, var environmentId, var listGuid) = RequireValidKeyFields(tenant, environment, list);
+            await RequireValidKeyFields(tenant, environment, list);
 
-            Console.WriteLine($"Bulk Deleting {rows} Rows  from Tenant {tenantId} Environment {environmentId} List {listGuid}");
+            Console.WriteLine($"Bulk Deleting {rows} Rows  from {Context()}");
 
-            await DoBulkDelete("bulk delete", environmentId, tenantId, listGuid, 1, rows, MakeRowKey);
+            await DoBulkDelete("bulk delete", 1, rows, MakeRowKey);
         }
 
         // Delete the whole list -- even the schema.
         private static async Task BulkDeleter2(int tenant, int environment, int list)
         {
-            (var tenantId, var environmentId, var listGuid) = RequireValidKeyFields(tenant, environment, list);
+            await RequireValidKeyFields(tenant, environment, list);
 
-            Console.WriteLine($"Bulk Deleting List {listGuid}");
+            Console.WriteLine($"Bulk Deleting {Context()}");
 
             await Task.Delay(0);
 
@@ -598,7 +643,7 @@ namespace ListMgmt
         }
 
 
-        private static Key MakeRowKey(Guid tenantId, Guid environmentId, Guid listGuid, int recNo) // Rec0 is the schema (the field names)
+        private static Key MakeRowKey(int recNo, RecordType recordType) // Rec0 is the schema (the field names)
         {
  
             GuidToParts(listGuid, out ulong listPart1, out ulong listPart2);
@@ -625,7 +670,8 @@ namespace ListMgmt
                     }
                 },
                 ListKey = $"Tenant{tenantId}Environment{environmentId}List{listGuid}Rec{recNo}",
-                RecType = Convert.ToByte(recNo == 0 ? RecordType.ListSchema : RecordType.ListRow),
+                RecType = Convert.ToByte(recordType),
+                Revision = (recordType == RecordType.ListRevisionNum || recordType == RecordType.ListCandidateRevision) ? (ushort)0 : revision,
             };
 
             return key;
@@ -635,13 +681,13 @@ namespace ListMgmt
         {
             int rows = RequireRows();
 
-            (var tenantId, var environmentId, var listGuid) = RequireValidKeyFields(tenant, environment, list);
+            await RequireValidKeyFields(tenant, environment, list);
 
-            Console.WriteLine($"Bulk Reading the first {rows} Keys from List {listGuid}");
+            Console.WriteLine($"Bulk Reading the first {rows} Keys from {Context()}");
             List<Key> keys = new List<Key>(rows);
             for (int row = 0; row <= rows; row++)
             {
-                keys.Add(MakeRowKey(tenantId, environmentId, listGuid, row));
+                keys.Add(MakeRowKey(row, row == 0 ? RecordType.ListSchema : RecordType.ListRow));
             }
 
             var values = await Read(keys);
@@ -656,11 +702,11 @@ namespace ListMgmt
             }
         }
 
-        private static async Task<(Key key, Value value)> DoRead(Guid tenantId, Guid environmentId, Guid listGuid, int row, int column)
+        private static async Task<(Key key, Value value)> DoRead(int row, int column)
         {
-            Console.WriteLine($"Reading Row {row}, Column {column} from List {listGuid}");
+            Console.WriteLine($"Reading Row {row}, Column {column} from {Context()}");
 
-            var key = MakeRowKey(tenantId, environmentId, listGuid, row);
+            var key = MakeRowKey(row, row == 0 ? RecordType.ListSchema : RecordType.ListRow);
 
             var value = (await Read(new[] { key })).FirstOrDefault();
 
@@ -670,15 +716,17 @@ namespace ListMgmt
         private static async Task Reader(int tenant, int environment, int list)
         {
             (int row, int column) = RequireRowAndColumn();
-            (var tenantId, var environmentId, var listGuid) = RequireValidKeyFields(tenant, environment, list); 
+            await RequireValidKeyFields(tenant, environment, list); 
             
             string colVal = string.Empty;
 
-            (var key, var value) = await DoRead(tenantId, environmentId, listGuid, row, column);
+            (var key, var value) = await DoRead(row, column);
 
-            if (value != null)
+            var listRow = JsonConvert.DeserializeObject<ListRow>(value.JsonData.ToString());
+
+            if (value != null) 
             {
-                colVal = (string)typeof(Value).GetProperty($"Column{column}").GetValue(value);
+                colVal = listRow.Vals[column-1];
                 Console.WriteLine($"Key {key.ListKey} Value {colVal}");
             }
             else
@@ -691,23 +739,25 @@ namespace ListMgmt
         {
             (int row, int column) = RequireRowAndColumn();
 
-            (var tenantId, var environmentId, var listGuid) = RequireValidKeyFields(tenant, environment, list); 
+            await RequireValidKeyFields(tenant, environment, list); 
 
             string oldValue = string.Empty;
 
-            Console.WriteLine($"Updating Row {row}, Column {column} of List {listGuid}");
+            Console.WriteLine($"Updating Row {row}, Column {column} of {Context()}");
 
-            (var key, var value) = await DoRead(tenantId, environmentId, listGuid, row, column);
+            (var key, var value) = await DoRead(row, column);
 
-            if (value != null)  //TODO
+            var listRow = JsonConvert.DeserializeObject<ListRow>(value.JsonData.ToString());
+
+            if (value != null)  
             {
-                oldValue = (string)typeof(Value).GetProperty($"Column{column}").GetValue(value);
+                oldValue = listRow.Vals[column-1];
 
                 string newValue = $"update Col {column} {DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}";
 
-                typeof(Value)
-                    .GetProperty($"Column{column}")
-                    .SetValue(value, newValue);
+                listRow.Vals[column-1] = newValue;
+
+                value.JsonData = new BondBlob(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(listRow)));
 
                 KeyValuePair<Key, Value> kvp = new KeyValuePair<Key, Value>(key, value);
 
@@ -723,11 +773,11 @@ namespace ListMgmt
         {
             int row = RequireRow();
 
-            (var tenantId, var environmentId, var listGuid) = RequireValidKeyFields(tenant, environment, list);
+            await RequireValidKeyFields(tenant, environment, list);
 
-            var key = MakeRowKey(tenantId, environmentId, listGuid, row);
+            var key = MakeRowKey(row, row == 0 ? RecordType.ListSchema : RecordType.ListRow);
 
-            Console.WriteLine($"Deleting Row {row} of Tenant {tenantId} Environment {environmentId} List {listGuid} Key {key.ListKey}");
+            Console.WriteLine($"Deleting Row {row} of {Context()} Key {key.ListKey}");
 
             await Delete(new[] { key });
         }

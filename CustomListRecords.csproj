@@ -148,6 +148,7 @@
   <ItemGroup>
     <None Include="2017-10-09T10-12-13.usagetracking" />
     <None Include="App.config" />
+    <None Include="CompiledSchemas\ListMgmt.bond" />
     <None Include="dependencies.ini" />
     <None Include="exports" />
     <None Include="exports-self" />

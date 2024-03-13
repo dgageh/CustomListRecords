@@ -19,7 +19,7 @@ struct Key
     0: required PartitionedKeyFields Ids;
 
     1: required uint8 RecType;
-    2: required int8 Revision;
+    2: required uint16 Revision;
     3: required string ListKey;
 }
 

@@ -1175,8 +1175,8 @@ public partial class Key : IBondSerializable, IGenericSerializer
     // 1: Required uint8 RecType
     private Byte m_RecType;
 
-    // 2: Required int8 Revision
-    private SByte m_Revision;
+    // 2: Required uint16 Revision
+    private UInt16 m_Revision;
 
     // 3: Required string ListKey
     private String m_ListKey;
@@ -1202,7 +1202,7 @@ public partial class Key : IBondSerializable, IGenericSerializer
     /// <summary>
     /// Revision
     /// </summary>
-    public SByte Revision
+    public UInt16 Revision
     {
         get { return this.m_Revision; }
         set { this.m_Revision = value; }
@@ -1261,7 +1261,7 @@ public partial class Key : IBondSerializable, IGenericSerializer
             Revision_meta.name = "Revision";
             Revision_meta.modifier = global::Microsoft.Bond.Modifier.Required;
 
-            Revision_meta.default_value.int_value = 0;
+            Revision_meta.default_value.uint_value = 0;
 
             // ListKey
             ListKey_meta.name = "ListKey";
@@ -1349,7 +1349,7 @@ public partial class Key : IBondSerializable, IGenericSerializer
         that.Ids = (this.Ids == null ? null : (global::ListMgmt.PartitionedKeyFields)this.Ids.Clone());
         // 1: uint8 RecType
         that.RecType = this.RecType;
-        // 2: int8 Revision
+        // 2: uint16 Revision
         that.Revision = this.Revision;
         // 3: string ListKey
         that.ListKey = this.ListKey;
@@ -1438,7 +1438,7 @@ public partial class Key : IBondSerializable, IGenericSerializer
 
         if (!canOmitFields || !reader.ReadFieldOmitted())
         {
-            this.Revision = reader.ReadInt8();
+            this.Revision = reader.ReadUInt16();
         }
         else
         {
@@ -1492,7 +1492,7 @@ public partial class Key : IBondSerializable, IGenericSerializer
                     seenRequiredFields.Set(__ordinals.RecType, true);
                     break;
                 case __ordinals.Revision:  // id=2
-                    this.Revision = global::Microsoft.Bond.ReadHelper.ReadInt8(reader, type);
+                    this.Revision = global::Microsoft.Bond.ReadHelper.ReadUInt16(reader, type);
                     seenRequiredFields.Set(__ordinals.Revision, true);
                     break;
                 case __ordinals.ListKey:  // id=3
@@ -1614,8 +1614,8 @@ public partial class Key : IBondSerializable, IGenericSerializer
         writer.WriteFieldBegin(global::Microsoft.Bond.BondDataType.BT_UINT8, __ordinals.RecType, Schema.RecType_meta);
             writer.WriteUInt8(m_RecType);
         writer.WriteFieldEnd();
-        writer.WriteFieldBegin(global::Microsoft.Bond.BondDataType.BT_INT8, __ordinals.Revision, Schema.Revision_meta);
-            writer.WriteInt8(m_Revision);
+        writer.WriteFieldBegin(global::Microsoft.Bond.BondDataType.BT_UINT16, __ordinals.Revision, Schema.Revision_meta);
+            writer.WriteUInt16(m_Revision);
         writer.WriteFieldEnd();
         writer.WriteFieldBegin(global::Microsoft.Bond.BondDataType.BT_STRING, __ordinals.ListKey, Schema.ListKey_meta);
             writer.WriteString(m_ListKey);
@@ -1711,8 +1711,8 @@ public partial class Key : IBondSerializable, IGenericSerializer
         field.metadata.modifier = global::Microsoft.Bond.Modifier.Required;
         field.metadata.default_value.nothing = false;
 
-        field.metadata.default_value.int_value = 0;
-        field.type.id = global::Microsoft.Bond.BondDataType.BT_INT8;
+        field.metadata.default_value.uint_value = 0;
+        field.type.id = global::Microsoft.Bond.BondDataType.BT_UINT16;
 
         structDef.fields.Add(field);
 
