@@ -10,19 +10,12 @@ using System.Threading.Tasks;
 using Microsoft.ObjectStore;
 using Microsoft.Identity.Client;
 using Microsoft.Extensions.CommandLineUtils;
-using System.IdentityModel.Metadata;
 using Guid = System.Guid;
-using System.Windows.Forms;
-using System.Drawing.Text;
-using System.Data.Common;
-using System.Net;
 using System.Diagnostics;
-using ObjectStoreWireProtocol;
-using ListMgmt;
 using Newtonsoft.Json;
-using Bond.Tag;
 using System.Text;
-using Bond;
+using System.Drawing;
+using System.Xml.Linq;
 using Newtonsoft.Json.Linq;
 
 
@@ -33,7 +26,7 @@ namespace ListMgmt
 
         public const string EnvironmentEndpoint = "https://objectstorebingfd.prod.westus2.binginternal.com:443/sds";// https://objectstorebingfd.int.westus2.binginternal.com:443/sds";
         //Use https://objectstorebingfd.int.westus2.binginternal.com:443/sds URL when code is downloaded/executed from devbox or internet (not AP backend). See more details here: https://eng.ms/docs/experiences-devices/webxt/search-content-platform/objectstore/objectstore/objectstore-public-wiki/getting-started/pf-environments
-        public const string NamespaceName = "DFP-CRE";
+        public const string NamespaceName = "DynamicsAccountTakeOver";
         public const string TableName = "CustomListRecords";
         public const StoreName CertificateStoreName = StoreName.My;
         public const StoreLocation CertificateStoreLocation = StoreLocation.CurrentUser;
@@ -164,6 +157,38 @@ namespace ListMgmt
         {
             await client.Write(keyValuePairs).WithHttpHeaders(header).WithInstrumentation(instrumentation).SendAsync();
             Stats.Add(("Write", instrumentation.LatencyInfo.GetTotalLatency(), instrumentation.LatencyInfo.GetServerSideLatency()));
+        }
+
+        private static async Task TestRangeQuery(IClient<Key, Value> client, Key startKey, Key endKey)
+        {
+            List<KeyValuePair<Key, Value>> allResults = new List<KeyValuePair<Key, Value>>();
+
+            var rangeRequest = client.RangeQueryBroadcast(startKey, endKey).WithKeysOnly().WithInstrumentation(instrumentation);
+
+            // WithCustomShardResultLimit() is used to illustrate the use of continuation query on the small amount of data 
+            // present in the test table, it is generally not needed otherwise
+//            var queryResult = await rangeRequest.WithCustomShardResultLimit(1).SendAsync();
+            var queryResult = await rangeRequest.SendAsync();
+            allResults.AddRange(queryResult.Results);
+
+            while (!queryResult.IsFinished)
+            {
+                Console.WriteLine($"Continuing after {queryResult.Results.Count}");
+                queryResult = await ExecuteContinuation(client, queryResult);
+                allResults.AddRange(queryResult.Results);
+            }
+
+            // The query returns both keys and values, but here we print only keys for simplicity and verify program results
+            foreach (var result in allResults)
+            {
+//                Console.WriteLine($"Rev {result.Key.Ids.Revision} Type {(RecordType)result.Key.RecType} {result.Key.ListKey}" );
+            }
+            Stats.Add(("RangeQuery", instrumentation.LatencyInfo.GetTotalLatency(), instrumentation.LatencyInfo.GetServerSideLatency()));
+        }
+
+        private static async Task<RangeQueryResults<Key, Value>> ExecuteContinuation(IClient<Key, Value> client, RangeQueryResults<Key, Value> previousResults)
+        {
+            return await client.ContinueRangeQueryBroadcast(previousResults.CreateContinuationParameters(), previousResults.EndKey).SendAsync();
         }
 
         static async Task<List<Value>> Read(IEnumerable<Key> keys)
@@ -383,7 +408,7 @@ namespace ListMgmt
                 ColumnCount = columns,
             };
 
-            for (int i = 1; i <= columns; i++)
+            for (int i = 0; i < columns; i++)
             {
                 schema.Cols[i] = $"List{listGuid}Col{i}";
             }
@@ -439,7 +464,7 @@ namespace ListMgmt
 
             var value = (await Read(new[] { key })).FirstOrDefault() ?? new Value();
 
-            var listRow = JsonConvert.DeserializeObject<ListRow>(value.JsonData.ToString());
+            var listRow = JsonConvert.DeserializeObject<ListRow>(Encoding.UTF8.GetString(value.JsonData.Data.ToArray<byte>()));
 
             for (int i = 0; i < columns; i++)
             {
@@ -472,7 +497,7 @@ namespace ListMgmt
             var config = new DataLoadConfiguration(locations, NamespaceName, TableName, 20, 20, 2, 10000, 1000, true).WithClientCertificates(Certificates);
             using (var loader = new DataLoader(config))
             {
-                for (int recNo = startRow; recNo < endRow; recNo++)
+                for (int recNo = startRow; recNo <= endRow; recNo++)
                 {
                     (var key, var value) = await recordGenerator(operation, recNo, columns);
                     object context = recNo;
@@ -540,7 +565,7 @@ namespace ListMgmt
             if (value == null)
                 return 0;
 
-            var listRevisionNum = JsonConvert.DeserializeObject<ListRevisionNum>(value.JsonData.ToString());
+            var listRevisionNum = JsonConvert.DeserializeObject<ListRevisionNum>(Encoding.UTF8.GetString(value.JsonData.Data.ToArray<byte>()));
 
             if (listRevisionNum == null)
                 return 0;
@@ -594,14 +619,12 @@ namespace ListMgmt
 
             Console.WriteLine($"Bulk Importing {rows} Rows and {columns} Columns into {Context()}");
 
-            var key = MakeRowKey(0, RecordType.ListRevisionNum);
-            var value = (await Read(new[] { key })).FirstOrDefault();
-
-            await SetRevision(true, (ushort)(revision + 1));
+            revision++;                                
+            await SetRevision(true, revision);        // Create the candidate revision
             
             await DoBulkWrite("import", 0, rows, columns, MakeImportRecord);  // Starts at 0.  Create the schema record.
 
-            await SetRevision(false, (ushort)(revision + 1));
+            await SetRevision(false, revision);         // Create the realrevision
             await DeleteCandidateRevision();
         }
 
@@ -637,9 +660,14 @@ namespace ListMgmt
 
             Console.WriteLine($"Bulk Deleting {Context()}");
 
-            await Task.Delay(0);
+            var Key1 = MakeRowKey(0, RecordType.ListSchema);
+            var Key2 = MakeRowKey(500000, RecordType.ListRow);
+            Key1.Ids.Revision = 0;
+            Key2.Ids.Revision = 99;
 
-            throw new NotImplementedException("Required co procs and range queries.");
+            await TestRangeQuery(client, Key1, Key2);
+
+//            throw new NotImplementedException("Required co procs and range queries.");
         }
 
 
@@ -667,11 +695,11 @@ namespace ListMgmt
                     {
                         High = envPart1,
                         Low = envPart2,
-                    }
+                    },
+                    Revision = (recordType == RecordType.ListRevisionNum || recordType == RecordType.ListCandidateRevision) ? (ushort)0 : revision,
                 },
                 ListKey = $"Tenant{tenantId}Environment{environmentId}List{listGuid}Rec{recNo}",
                 RecType = Convert.ToByte(recordType),
-                Revision = (recordType == RecordType.ListRevisionNum || recordType == RecordType.ListCandidateRevision) ? (ushort)0 : revision,
             };
 
             return key;
@@ -696,9 +724,9 @@ namespace ListMgmt
             int valueCount = values.Count();
 
             Console.WriteLine($"Read the values for {keyCount} Keys.  Returned {valueCount} values.");
-            for (int i = 0; i < valueCount; i++)
+            foreach (var value in values)
             {
-                Console.WriteLine(BondToJson(values[i]));
+                Console.WriteLine(Encoding.UTF8.GetString(value.JsonData.Data.ToArray<byte>()));
             }
         }
 
@@ -722,7 +750,7 @@ namespace ListMgmt
 
             (var key, var value) = await DoRead(row, column);
 
-            var listRow = JsonConvert.DeserializeObject<ListRow>(value.JsonData.ToString());
+            var listRow = JsonConvert.DeserializeObject<ListRow>(Encoding.UTF8.GetString(value.JsonData.Data.ToArray<byte>()));
 
             if (value != null) 
             {
@@ -747,7 +775,7 @@ namespace ListMgmt
 
             (var key, var value) = await DoRead(row, column);
 
-            var listRow = JsonConvert.DeserializeObject<ListRow>(value.JsonData.ToString());
+            var listRow = JsonConvert.DeserializeObject<ListRow>(Encoding.UTF8.GetString(value.JsonData.Data.ToArray<byte>()));
 
             if (value != null)  
             {

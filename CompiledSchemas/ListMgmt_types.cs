@@ -583,6 +583,9 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
     // 2: Required ListMgmt.BondGuid ListId
     private global::ListMgmt.BondGuid m_ListId;
 
+    // 3: Required uint16 Revision
+    private UInt16 m_Revision;
+
     /// <summary>
     /// TenantId
     /// </summary>
@@ -611,6 +614,15 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
     }
 
     /// <summary>
+    /// Revision
+    /// </summary>
+    public UInt16 Revision
+    {
+        get { return this.m_Revision; }
+        set { this.m_Revision = value; }
+    }
+
+    /// <summary>
     /// GetFullyQualifiedName
     /// </summary>
     public static string GetFullyQualifiedName()
@@ -627,6 +639,7 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
         public static readonly Metadata TenantId_meta = new Metadata();
         public static readonly Metadata EnvironmentId_meta = new Metadata();
         public static readonly Metadata ListId_meta = new Metadata();
+        public static readonly Metadata Revision_meta = new Metadata();
 
         static Schema()
         {
@@ -648,6 +661,12 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
             // ListId
             ListId_meta.name = "ListId";
             ListId_meta.modifier = global::Microsoft.Bond.Modifier.Required;
+
+            // Revision
+            Revision_meta.name = "Revision";
+            Revision_meta.modifier = global::Microsoft.Bond.Modifier.Required;
+
+            Revision_meta.default_value.uint_value = 0;
         }   // ~static Schema()
 
     }   // ~Schema
@@ -658,6 +677,7 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
         public const int TenantId = 0;
         public const int EnvironmentId = 1;
         public const int ListId = 2;
+        public const int Revision = 3;
     }   // ~__ordinals
 
 
@@ -670,6 +690,7 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
         public const String s_TenantId = "TenantId";
         public const String s_EnvironmentId = "EnvironmentId";
         public const String s_ListId = "ListId";
+        public const String s_Revision = "Revision";
     }   // ~__internal
 
     /// <summary>
@@ -702,6 +723,7 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
         m_TenantId = new global::ListMgmt.BondGuid();
         m_EnvironmentId = new global::ListMgmt.BondGuid();
         m_ListId = new global::ListMgmt.BondGuid();
+        m_Revision = 0;
     } // ResetImpl()
 
     /// <summary>
@@ -730,6 +752,8 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
         that.EnvironmentId = (this.EnvironmentId == null ? null : (global::ListMgmt.BondGuid)this.EnvironmentId.Clone());
         // 2: ListMgmt.BondGuid ListId
         that.ListId = (this.ListId == null ? null : (global::ListMgmt.BondGuid)this.ListId.Clone());
+        // 3: uint16 Revision
+        that.Revision = this.Revision;
     }    // ~CopyTo
 
 
@@ -821,6 +845,15 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
         {
             throw new BondException("Missing required field \"ListId\", id=2");
         }
+
+        if (!canOmitFields || !reader.ReadFieldOmitted())
+        {
+            this.Revision = reader.ReadUInt16();
+        }
+        else
+        {
+            throw new BondException("Missing required field \"Revision\", id=3");
+        }
         reader.ReadStructEnd();
     }   // ~ReadUntagged()
 
@@ -831,7 +864,7 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
     protected  void Read(global::Microsoft.Bond.IProtocolReader reader, out bool isPartialStruct)
     {
         Reset();
-        BitArray seenRequiredFields = new BitArray(3);
+        BitArray seenRequiredFields = new BitArray(4);
 
         reader.ReadStructBegin(true);
         
@@ -864,6 +897,10 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
                     global::Microsoft.Bond.ReadHelper.ValidateType(type, global::Microsoft.Bond.BondDataType.BT_STRUCT);
                     this.ListId.Read(reader);
                     seenRequiredFields.Set(__ordinals.ListId, true);
+                    break;
+                case __ordinals.Revision:  // id=3
+                    this.Revision = global::Microsoft.Bond.ReadHelper.ReadUInt16(reader, type);
+                    seenRequiredFields.Set(__ordinals.Revision, true);
                     break;
                 default:
                     reader.Skip(type);
@@ -903,6 +940,12 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
             ok = false;
             missingFieldName = "ListId";
             missingFieldId = __ordinals.ListId;
+        }
+        if (ok && !seenFields.Get(__ordinals.Revision))
+        {
+            ok = false;
+            missingFieldName = "Revision";
+            missingFieldId = __ordinals.Revision;
         }
         
         if (!ok)
@@ -976,6 +1019,9 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
         writer.WriteFieldEnd();
         writer.WriteFieldBegin(global::Microsoft.Bond.BondDataType.BT_STRUCT, __ordinals.ListId, Schema.ListId_meta);
             m_ListId.Write(writer, true);
+        writer.WriteFieldEnd();
+        writer.WriteFieldBegin(global::Microsoft.Bond.BondDataType.BT_UINT16, __ordinals.Revision, Schema.Revision_meta);
+            writer.WriteUInt16(m_Revision);
         writer.WriteFieldEnd();
         writer.WriteStructEnd(!isTopLevel);
     }   // ~Write()
@@ -1069,6 +1115,17 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
 
         structDef.fields.Add(field);
 
+        field = new global::Microsoft.Bond.FieldDef();
+        field.id = 3;
+        field.metadata.name="Revision";
+        field.metadata.modifier = global::Microsoft.Bond.Modifier.Required;
+        field.metadata.default_value.nothing = false;
+
+        field.metadata.default_value.uint_value = 0;
+        field.type.id = global::Microsoft.Bond.BondDataType.BT_UINT16;
+
+        structDef.fields.Add(field);
+
         return pos;
     }
  
@@ -1112,6 +1169,7 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
     {
         bool equals = true;
         
+        equals = equals && ((this.Revision == that.Revision));
         return equals;
     }    // ~MemberwiseCompareQuick
     
@@ -1152,6 +1210,7 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
         sb.AppendFormat(format, __internal.s_TenantId, this.TenantId, separator);
         sb.AppendFormat(format, __internal.s_EnvironmentId, this.EnvironmentId, separator);
         sb.AppendFormat(format, __internal.s_ListId, this.ListId, separator);
+        sb.AppendFormat(format, __internal.s_Revision, this.Revision, separator);
         
         return sb.ToString();
     } // ToString()
@@ -1175,10 +1234,7 @@ public partial class Key : IBondSerializable, IGenericSerializer
     // 1: Required uint8 RecType
     private Byte m_RecType;
 
-    // 2: Required uint16 Revision
-    private UInt16 m_Revision;
-
-    // 3: Required string ListKey
+    // 2: Required string ListKey
     private String m_ListKey;
 
     /// <summary>
@@ -1197,15 +1253,6 @@ public partial class Key : IBondSerializable, IGenericSerializer
     {
         get { return this.m_RecType; }
         set { this.m_RecType = value; }
-    }
-
-    /// <summary>
-    /// Revision
-    /// </summary>
-    public UInt16 Revision
-    {
-        get { return this.m_Revision; }
-        set { this.m_Revision = value; }
     }
 
     /// <summary>
@@ -1233,7 +1280,6 @@ public partial class Key : IBondSerializable, IGenericSerializer
         public static readonly Metadata meta = new Metadata();
         public static readonly Metadata Ids_meta = new Metadata();
         public static readonly Metadata RecType_meta = new Metadata();
-        public static readonly Metadata Revision_meta = new Metadata();
         public static readonly Metadata ListKey_meta = new Metadata();
 
         static Schema()
@@ -1257,12 +1303,6 @@ public partial class Key : IBondSerializable, IGenericSerializer
 
             RecType_meta.default_value.uint_value = 0;
 
-            // Revision
-            Revision_meta.name = "Revision";
-            Revision_meta.modifier = global::Microsoft.Bond.Modifier.Required;
-
-            Revision_meta.default_value.uint_value = 0;
-
             // ListKey
             ListKey_meta.name = "ListKey";
             ListKey_meta.modifier = global::Microsoft.Bond.Modifier.Required;
@@ -1275,8 +1315,7 @@ public partial class Key : IBondSerializable, IGenericSerializer
     {
         public const int Ids = 0;
         public const int RecType = 1;
-        public const int Revision = 2;
-        public const int ListKey = 3;
+        public const int ListKey = 2;
     }   // ~__ordinals
 
 
@@ -1288,7 +1327,6 @@ public partial class Key : IBondSerializable, IGenericSerializer
 
         public const String s_Ids = "Ids";
         public const String s_RecType = "RecType";
-        public const String s_Revision = "Revision";
         public const String s_ListKey = "ListKey";
     }   // ~__internal
 
@@ -1321,7 +1359,6 @@ public partial class Key : IBondSerializable, IGenericSerializer
     {
         m_Ids = new global::ListMgmt.PartitionedKeyFields();
         m_RecType = 0;
-        m_Revision = 0;
         m_ListKey = string.Empty;
     } // ResetImpl()
 
@@ -1349,9 +1386,7 @@ public partial class Key : IBondSerializable, IGenericSerializer
         that.Ids = (this.Ids == null ? null : (global::ListMgmt.PartitionedKeyFields)this.Ids.Clone());
         // 1: uint8 RecType
         that.RecType = this.RecType;
-        // 2: uint16 Revision
-        that.Revision = this.Revision;
-        // 3: string ListKey
+        // 2: string ListKey
         that.ListKey = this.ListKey;
     }    // ~CopyTo
 
@@ -1438,20 +1473,11 @@ public partial class Key : IBondSerializable, IGenericSerializer
 
         if (!canOmitFields || !reader.ReadFieldOmitted())
         {
-            this.Revision = reader.ReadUInt16();
-        }
-        else
-        {
-            throw new BondException("Missing required field \"Revision\", id=2");
-        }
-
-        if (!canOmitFields || !reader.ReadFieldOmitted())
-        {
             this.ListKey = reader.ReadString();
         }
         else
         {
-            throw new BondException("Missing required field \"ListKey\", id=3");
+            throw new BondException("Missing required field \"ListKey\", id=2");
         }
         reader.ReadStructEnd();
     }   // ~ReadUntagged()
@@ -1463,7 +1489,7 @@ public partial class Key : IBondSerializable, IGenericSerializer
     protected  void Read(global::Microsoft.Bond.IProtocolReader reader, out bool isPartialStruct)
     {
         Reset();
-        BitArray seenRequiredFields = new BitArray(4);
+        BitArray seenRequiredFields = new BitArray(3);
 
         reader.ReadStructBegin(true);
         
@@ -1491,11 +1517,7 @@ public partial class Key : IBondSerializable, IGenericSerializer
                     this.RecType = global::Microsoft.Bond.ReadHelper.ReadUInt8(reader, type);
                     seenRequiredFields.Set(__ordinals.RecType, true);
                     break;
-                case __ordinals.Revision:  // id=2
-                    this.Revision = global::Microsoft.Bond.ReadHelper.ReadUInt16(reader, type);
-                    seenRequiredFields.Set(__ordinals.Revision, true);
-                    break;
-                case __ordinals.ListKey:  // id=3
+                case __ordinals.ListKey:  // id=2
                     this.ListKey = global::Microsoft.Bond.ReadHelper.ReadString(reader, type);
                     seenRequiredFields.Set(__ordinals.ListKey, true);
                     break;
@@ -1531,12 +1553,6 @@ public partial class Key : IBondSerializable, IGenericSerializer
             ok = false;
             missingFieldName = "RecType";
             missingFieldId = __ordinals.RecType;
-        }
-        if (ok && !seenFields.Get(__ordinals.Revision))
-        {
-            ok = false;
-            missingFieldName = "Revision";
-            missingFieldId = __ordinals.Revision;
         }
         if (ok && !seenFields.Get(__ordinals.ListKey))
         {
@@ -1613,9 +1629,6 @@ public partial class Key : IBondSerializable, IGenericSerializer
         writer.WriteFieldEnd();
         writer.WriteFieldBegin(global::Microsoft.Bond.BondDataType.BT_UINT8, __ordinals.RecType, Schema.RecType_meta);
             writer.WriteUInt8(m_RecType);
-        writer.WriteFieldEnd();
-        writer.WriteFieldBegin(global::Microsoft.Bond.BondDataType.BT_UINT16, __ordinals.Revision, Schema.Revision_meta);
-            writer.WriteUInt16(m_Revision);
         writer.WriteFieldEnd();
         writer.WriteFieldBegin(global::Microsoft.Bond.BondDataType.BT_STRING, __ordinals.ListKey, Schema.ListKey_meta);
             writer.WriteString(m_ListKey);
@@ -1707,17 +1720,6 @@ public partial class Key : IBondSerializable, IGenericSerializer
 
         field = new global::Microsoft.Bond.FieldDef();
         field.id = 2;
-        field.metadata.name="Revision";
-        field.metadata.modifier = global::Microsoft.Bond.Modifier.Required;
-        field.metadata.default_value.nothing = false;
-
-        field.metadata.default_value.uint_value = 0;
-        field.type.id = global::Microsoft.Bond.BondDataType.BT_UINT16;
-
-        structDef.fields.Add(field);
-
-        field = new global::Microsoft.Bond.FieldDef();
-        field.id = 3;
         field.metadata.name="ListKey";
         field.metadata.modifier = global::Microsoft.Bond.Modifier.Required;
         field.metadata.default_value.nothing = false;
@@ -1770,7 +1772,6 @@ public partial class Key : IBondSerializable, IGenericSerializer
         bool equals = true;
         
         equals = equals && ((this.RecType == that.RecType));
-        equals = equals && ((this.Revision == that.Revision));
         equals = equals && ((this.ListKey == null) == (that.ListKey == null));
         equals = equals && (this.ListKey == null ? true : (this.ListKey.Length == that.ListKey.Length));
         return equals;
@@ -1811,7 +1812,6 @@ public partial class Key : IBondSerializable, IGenericSerializer
         string format = valuesOnly ? "{1}{2}" : "{0} = {1}{2}";
         sb.AppendFormat(format, __internal.s_Ids, this.Ids, separator);
         sb.AppendFormat(format, __internal.s_RecType, this.RecType, separator);
-        sb.AppendFormat(format, __internal.s_Revision, this.Revision, separator);
         sb.AppendFormat(format, __internal.s_ListKey, this.ListKey, separator);
         
         return sb.ToString();
