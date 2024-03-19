@@ -14,9 +14,6 @@ using Guid = System.Guid;
 using System.Diagnostics;
 using Newtonsoft.Json;
 using System.Text;
-using System.Drawing;
-using System.Xml.Linq;
-using Newtonsoft.Json.Linq;
 
 
 namespace ListMgmt
@@ -157,38 +154,6 @@ namespace ListMgmt
         {
             await client.Write(keyValuePairs).WithHttpHeaders(header).WithInstrumentation(instrumentation).SendAsync();
             Stats.Add(("Write", instrumentation.LatencyInfo.GetTotalLatency(), instrumentation.LatencyInfo.GetServerSideLatency()));
-        }
-
-        private static async Task TestRangeQuery(IClient<Key, Value> client, Key startKey, Key endKey)
-        {
-            List<KeyValuePair<Key, Value>> allResults = new List<KeyValuePair<Key, Value>>();
-
-            var rangeRequest = client.RangeQueryBroadcast(startKey, endKey).WithKeysOnly().WithInstrumentation(instrumentation);
-
-            // WithCustomShardResultLimit() is used to illustrate the use of continuation query on the small amount of data 
-            // present in the test table, it is generally not needed otherwise
-//            var queryResult = await rangeRequest.WithCustomShardResultLimit(1).SendAsync();
-            var queryResult = await rangeRequest.SendAsync();
-            allResults.AddRange(queryResult.Results);
-
-            while (!queryResult.IsFinished)
-            {
-                Console.WriteLine($"Continuing after {queryResult.Results.Count}");
-                queryResult = await ExecuteContinuation(client, queryResult);
-                allResults.AddRange(queryResult.Results);
-            }
-
-            // The query returns both keys and values, but here we print only keys for simplicity and verify program results
-            foreach (var result in allResults)
-            {
-//                Console.WriteLine($"Rev {result.Key.Ids.Revision} Type {(RecordType)result.Key.RecType} {result.Key.ListKey}" );
-            }
-            Stats.Add(("RangeQuery", instrumentation.LatencyInfo.GetTotalLatency(), instrumentation.LatencyInfo.GetServerSideLatency()));
-        }
-
-        private static async Task<RangeQueryResults<Key, Value>> ExecuteContinuation(IClient<Key, Value> client, RangeQueryResults<Key, Value> previousResults)
-        {
-            return await client.ContinueRangeQueryBroadcast(previousResults.CreateContinuationParameters(), previousResults.EndKey).SendAsync();
         }
 
         static async Task<List<Value>> Read(IEnumerable<Key> keys)
@@ -381,13 +346,20 @@ namespace ListMgmt
             revision = await GetRevision();
         }
 
+        static long RecCount = 0;
+
         static void LogResults(IEnumerable<IDataLoadResult> results)
         {
             foreach (var result in results)
             {
                 if (result.IsSuccessful)
                 {
-                    Console.WriteLine("Record {0}: writing to all locations successful", result.Context);
+                    RecCount++;
+                    if (RecCount % 10000 == 0)
+                        Console.Write(".");
+
+                    if (RecCount % 100000 == 0)
+                        Console.WriteLine(result.Context);
                 }
                 else
                 {
@@ -493,8 +465,8 @@ namespace ListMgmt
                 new VIP(EnvironmentVip)
             };
 
-            // The loader will use 20 keys per request, 20 simultenous requests, 10000 ms of timeout per request and a limit of 1000 keys per second
-            var config = new DataLoadConfiguration(locations, NamespaceName, TableName, 20, 20, 2, 10000, 1000, true).WithClientCertificates(Certificates);
+            // The loader will use 20 keys per request, 20 simultenous requests, 10000 ms of timeout per request and a limit of 2000 keys per second
+            var config = new DataLoadConfiguration(locations, NamespaceName, TableName, 20, 20, 2, 20000, 2000, true).WithClientCertificates(Certificates);
             using (var loader = new DataLoader(config))
             {
                 for (int recNo = startRow; recNo <= endRow; recNo++)
@@ -516,6 +488,104 @@ namespace ListMgmt
             }
             Stats.Add((operation, stopwatch.ElapsedMilliseconds, 0));
         }
+
+        private static async Task TestRangeQuery(Key startKey, Key endKey)
+        {
+            List<KeyValuePair<Key, Value>> allResults = new List<KeyValuePair<Key, Value>>();
+
+            var rangeRequest = client.RangeQueryBroadcast(startKey, endKey).WithKeysOnly().WithInstrumentation(instrumentation);
+
+            // WithCustomShardResultLimit() is used to illustrate the use of continuation query on the small amount of data 
+            // present in the test table, it is generally not needed otherwise
+            //            var queryResult = await rangeRequest.WithCustomShardResultLimit(1).SendAsync();
+            var queryResult = await rangeRequest.SendAsync();
+
+            while (!queryResult.IsFinished && queryResult.Results.Any())
+            {
+                Console.WriteLine($"Continuing after {queryResult.Results.Count}");
+                queryResult = await ExecuteContinuation(queryResult);
+            }
+
+            foreach (var result in queryResult.Results)
+            {
+                Console.WriteLine($"Rev {result.Key.Ids.Revision} Type {(RecordType)result.Key.RecType} {result.Key.ListKey}");
+            }
+
+
+            Stats.Add(("RangeQuery", instrumentation.LatencyInfo.GetTotalLatency(), instrumentation.LatencyInfo.GetServerSideLatency()));
+        }
+
+        private static async Task<RangeQueryResults<Key, Value>> ExecuteContinuation(RangeQueryResults<Key, Value> previousResults)
+        {
+            foreach (var result in previousResults.Results)
+            {
+                Console.WriteLine($"Rev {result.Key.Ids.Revision} Type {(RecordType)result.Key.RecType} {result.Key.ListKey}");
+            }
+            return await client.ContinueRangeQueryBroadcast(previousResults.CreateContinuationParameters(), previousResults.EndKey).SendAsync();
+        }
+
+
+        private static async Task RangeBulkDelete(Key startKey, Key endKey)
+        {
+            Stopwatch stopwatch = Stopwatch.StartNew();
+            stopwatch.Stop();
+            stopwatch.Reset();
+            var locations = new List<ITableLocation>
+            {
+                new VIP(EnvironmentVip)
+            };
+
+            // The loader will use 20 keys per request, 20 simultenous requests, 10000 ms of timeout per request and a limit of 1000 keys per second
+            var config = new DataLoadConfiguration(locations, NamespaceName, TableName, 50, 20, 2, 20000, 2000, true).WithClientCertificates(Certificates);
+            using (var loader = new DataLoader(config))
+            {
+                List<KeyValuePair<Key, Value>> allResults = new List<KeyValuePair<Key, Value>>();
+
+                var rangeRequest = client.RangeQueryBroadcast(startKey, endKey).WithKeysOnly().WithInstrumentation(instrumentation);
+
+                // WithCustomShardResultLimit() is used to illustrate the use of continuation query on the small amount of data 
+                // present in the test table, it is generally not needed otherwise
+                //            var queryResult = await rangeRequest.WithCustomShardResultLimit(1).SendAsync();
+                var queryResult = await rangeRequest.SendAsync();
+
+                while (queryResult.Results.Any())
+                {
+                    foreach (var pair in queryResult.Results)
+                    {
+                        var key = pair.Key;
+                        object context = key.ListKey;
+                        stopwatch.Start();
+                        loader.Delete(key, context);
+                        var results = loader.Receive(waitForAllRequests: false);
+                        stopwatch.Stop();
+                        LogResults(results);
+                    }
+
+                    if (queryResult.IsFinished)
+                        break;
+
+                    queryResult = await ExecuteDeleteContinuation(queryResult);
+                } 
+
+                stopwatch.Start();
+                loader.Flush();
+                var finalResults = loader.Receive(waitForAllRequests: true);
+                stopwatch.Stop();
+                LogResults(finalResults);
+            }
+            Stats.Add(("Bulk Delete", stopwatch.ElapsedMilliseconds, 0));
+            Stats.Add(("RangeQuery", instrumentation.LatencyInfo.GetTotalLatency(), instrumentation.LatencyInfo.GetServerSideLatency()));
+        }
+
+        private static async Task<RangeQueryResults<Key, Value>> ExecuteDeleteContinuation(RangeQueryResults<Key, Value> previousResults)
+        {
+            //foreach (var result in previousResults.Results)
+            //{
+            //    Console.WriteLine($"Rev {result.Key.Ids.Revision} Type {(RecordType)result.Key.RecType} {result.Key.ListKey}");
+            //}
+            return await client.ContinueRangeQueryBroadcast(previousResults.CreateContinuationParameters(), previousResults.EndKey).SendAsync();
+        }
+
 
         private static async Task DoBulkDelete(string operation, int startRow, int rows, Func<int, RecordType, Key> keyGenerator)
         {
@@ -559,9 +629,10 @@ namespace ListMgmt
 
         private static async Task<ushort> GetRevision()
         {
-            var key = MakeRowKey(0, RecordType.ListRevisionNum);
+            var key = MakeRowKey(0, RecordType.ListCandidateRevision);
             var value = (await Read(new[] { key })).FirstOrDefault();
 
+            if (value == null)
             if (value == null)
                 return 0;
 
@@ -660,23 +731,63 @@ namespace ListMgmt
 
             Console.WriteLine($"Bulk Deleting {Context()}");
 
-            var Key1 = MakeRowKey(0, RecordType.ListSchema);
-            var Key2 = MakeRowKey(500000, RecordType.ListRow);
-            Key1.Ids.Revision = 0;
-            Key2.Ids.Revision = 99;
+            var key1 = MakeRowKey(1, RecordType.ListRow);
+            var key2 = MakeRowKey(3000000, RecordType.ListRow);
 
-            await TestRangeQuery(client, Key1, Key2);
+            ////All Tenants
+            //key1.Ids.TenantId.High = 0;
+            //key1.Ids.TenantId.Low = 0;
+            //key2.Ids.TenantId.High = ulong.MaxValue;
+            //key2.Ids.TenantId.Low = ulong.MaxValue;
 
-//            throw new NotImplementedException("Required co procs and range queries.");
+            //// All Environments
+            //key1.Ids.EnvironmentId.High = 0;
+            //key1.Ids.EnvironmentId.Low = 0;
+            //key2.Ids.EnvironmentId.High = ulong.MaxValue;
+            //key2.Ids.EnvironmentId.Low = ulong.MaxValue;
+
+            //// All Lists
+            //key1.Ids.ListId.High = 0;
+            //key1.Ids.ListId.Low = 0;
+            //key2.Ids.ListId.High = ulong.MaxValue;
+            //key2.Ids.ListId.Low = ulong.MaxValue;
+
+            ////All Revisions
+            //key1.Ids.Revision = 3;
+            //key2.Ids.Revision = 5;
+
+            Console.WriteLine("Tenant {0}", GuidFromParts(key1.Ids.TenantId.Low, key1.Ids.TenantId.High));
+            Console.WriteLine("Tenant {0}", GuidFromParts(key2.Ids.TenantId.Low, key2.Ids.TenantId.High));
+            Console.WriteLine("Env {0}", GuidFromParts(key1.Ids.EnvironmentId.Low, key1.Ids.EnvironmentId.High));
+            Console.WriteLine("Env {0}", GuidFromParts(key2.Ids.EnvironmentId.Low, key2.Ids.EnvironmentId.High));
+            Console.WriteLine("List {0}", GuidFromParts(key1.Ids.ListId.Low, key1.Ids.ListId.High));
+            Console.WriteLine("List {0}", GuidFromParts(key2.Ids.ListId.Low, key2.Ids.ListId.High));
+
+
+            //key1.ListKey = "0000056677";
+            //key2.ListKey = "9999999999";
+
+                      //  await RangeBulkDelete(key1, key2);
+            await TestRangeQuery(key1, key2);
+
+
+            //            throw new NotImplementedException("Required co procs and range queries.");
         }
 
 
-        private static Key MakeRowKey(int recNo, RecordType recordType) // Rec0 is the schema (the field names)
+        private static Key MakeRowKey(int recNo, RecordType recordType)
         {
- 
             GuidToParts(listGuid, out ulong listPart1, out ulong listPart2);
             GuidToParts(environmentId, out ulong envPart1, out ulong envPart2);
             GuidToParts(tenantId, out ulong tenantPart1, out ulong tenantPart2);
+
+            int forcerevision = myCommands["--revision"].Value;
+            if (forcerevision > 0)
+            {
+                Console.WriteLine($"Forcing revision to {forcerevision}");
+                revision = (ushort)forcerevision;
+            }
+
             Key key = new Key()
             {
                 Ids = new PartitionedKeyFields()
@@ -698,7 +809,7 @@ namespace ListMgmt
                     },
                     Revision = (recordType == RecordType.ListRevisionNum || recordType == RecordType.ListCandidateRevision) ? (ushort)0 : revision,
                 },
-                ListKey = $"Tenant{tenantId}Environment{environmentId}List{listGuid}Rec{recNo}",
+                ListKey = recNo.ToString().PadLeft(10, '0'), // Format the recNo as a string padded left to 10 digits
                 RecType = Convert.ToByte(recordType),
             };
 
@@ -708,12 +819,13 @@ namespace ListMgmt
         private static async Task BulkReader(int tenant, int environment, int list)
         {
             int rows = RequireRows();
+            int startRow = RequireRow();
 
             await RequireValidKeyFields(tenant, environment, list);
 
             Console.WriteLine($"Bulk Reading the first {rows} Keys from {Context()}");
             List<Key> keys = new List<Key>(rows);
-            for (int row = 0; row <= rows; row++)
+            for (int row = startRow; row <= startRow + rows; row++)
             {
                 keys.Add(MakeRowKey(row, row == 0 ? RecordType.ListSchema : RecordType.ListRow));
             }
@@ -750,10 +862,10 @@ namespace ListMgmt
 
             (var key, var value) = await DoRead(row, column);
 
-            var listRow = JsonConvert.DeserializeObject<ListRow>(Encoding.UTF8.GetString(value.JsonData.Data.ToArray<byte>()));
-
             if (value != null) 
             {
+                var listRow = JsonConvert.DeserializeObject<ListRow>(Encoding.UTF8.GetString(value.JsonData.Data.ToArray<byte>()));
+
                 colVal = listRow.Vals[column-1];
                 Console.WriteLine($"Key {key.ListKey} Value {colVal}");
             }
@@ -775,10 +887,9 @@ namespace ListMgmt
 
             (var key, var value) = await DoRead(row, column);
 
-            var listRow = JsonConvert.DeserializeObject<ListRow>(Encoding.UTF8.GetString(value.JsonData.Data.ToArray<byte>()));
-
             if (value != null)  
             {
+                var listRow = JsonConvert.DeserializeObject<ListRow>(Encoding.UTF8.GetString(value.JsonData.Data.ToArray<byte>()));
                 oldValue = listRow.Vals[column-1];
 
                 string newValue = $"update Col {column} {DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")}";
@@ -800,14 +911,26 @@ namespace ListMgmt
         private static async Task Deleter(int tenant, int environment, int list)
         {
             int row = RequireRow();
+            int rows = RequireRows();
 
             await RequireValidKeyFields(tenant, environment, list);
 
-            var key = MakeRowKey(row, row == 0 ? RecordType.ListSchema : RecordType.ListRow);
+            for (int i = row; i < row + rows; i++)
+            {
 
-            Console.WriteLine($"Deleting Row {row} of {Context()} Key {key.ListKey}");
 
-            await Delete(new[] { key });
+                var key = MakeRowKey(i, row == 0 ? RecordType.ListSchema : RecordType.ListRow);
+
+    //            Console.WriteLine($"Deleting Row {row} of {Context()} Key {key.ListKey}");
+
+                var containsKeys = await ContainsKeys(new[] { key });
+
+                if (containsKeys.FirstOrDefault())
+                {
+                    Console.WriteLine($"FoundKey {key.ListKey}");
+                    await Delete(new[] { key });
+                }
+            }
         }
 
         private static async Task<bool> TryInvoke(string command, Func<int, int, int, Task> function)
@@ -869,6 +992,7 @@ namespace ListMgmt
             AddCommandOption(app, true, "columns", "How many columns");
             AddCommandOption(app, true, "row", $"Operates on the key at the given row.");
             AddCommandOption(app, true, "column", $"Operates on the key at the given col.");
+            AddCommandOption(app, true, "revision", $"Operates on the key with the given revision number.");
             AddCommandOption(app, true, "wait", "Wait for n miliseconds after each operation");
 
             app.OnExecute(() =>
