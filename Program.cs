@@ -24,7 +24,7 @@ namespace ListMgmt
         public const string EnvironmentEndpoint = "https://objectstorebingfd.prod.westus2.binginternal.com:443/sds";// https://objectstorebingfd.int.westus2.binginternal.com:443/sds";
         //Use https://objectstorebingfd.int.westus2.binginternal.com:443/sds URL when code is downloaded/executed from devbox or internet (not AP backend). See more details here: https://eng.ms/docs/experiences-devices/webxt/search-content-platform/objectstore/objectstore/objectstore-public-wiki/getting-started/pf-environments
         public const string NamespaceName = "DynamicsAccountTakeOver";
-        public const string TableName = "CustomListRecords";
+        public const string TableName = "ListMgmtTest";
         public const StoreName CertificateStoreName = StoreName.My;
         public const StoreLocation CertificateStoreLocation = StoreLocation.CurrentUser;
         public static X509CertificateCollection Certificates = LoadCert();
@@ -37,34 +37,31 @@ namespace ListMgmt
 
         class Configuration
         {
-            public Configuration(int tenant, int environment, int list)
+            public Configuration(int environment, int list)
             {
-                Tenant = tenant;
                 Environment = environment;
                 List = list;
             }
-            public int Tenant { get; set; }
             public int Environment { get; set; }
             public int List { get; set; }
         }
-        // All the possible combinations of of environmentid, tenantid, listguid.  The index of this is the argument to the commands.
+        // All the possible combinations of of environmentid, listguid.  The index of this is the argument to the commands.
         static Configuration[] configurations = new Configuration[]
         {
-            new Configuration(1,1,1),
-            new Configuration(1,2,3),
-            new Configuration(1,3,4),
-            new Configuration(1,4,5),
-            new Configuration(2,1,6),
-            new Configuration(2,2,7),
-            new Configuration(2,3,8),
-            new Configuration(3,4,9),
-            new Configuration(3,1,10),
-            new Configuration(3,2,11),
-            new Configuration(3,3,12),
-            new Configuration(3,4,13),
+            new Configuration(1,1),
+            new Configuration(2,3),
+            new Configuration(3,4),
+            new Configuration(4,5),
+            new Configuration(1,6),
+            new Configuration(2,7),
+            new Configuration(3,8),
+            new Configuration(4,9),
+            new Configuration(1,10),
+            new Configuration(2,11),
+            new Configuration(3,12),
+            new Configuration(4,13),
         };
 
-        public static Guid tenantId = Guid.Empty;
         public static Guid environmentId = Guid.Empty;
         public static Guid listGuid = Guid.Empty;
         public static ushort revision = 0;
@@ -153,7 +150,8 @@ namespace ListMgmt
         static async Task Write(IEnumerable<KeyValuePair<Key, Value>> keyValuePairs)
         {
             await client.Write(keyValuePairs).WithHttpHeaders(header).WithInstrumentation(instrumentation).SendAsync();
-            Stats.Add(("Write", instrumentation.LatencyInfo.GetTotalLatency(), instrumentation.LatencyInfo.GetServerSideLatency()));
+            if (instrumentation.LatencyInfo != null)
+                Stats.Add(("Write", instrumentation.LatencyInfo.GetTotalLatency(), instrumentation.LatencyInfo.GetServerSideLatency()));
         }
 
         static async Task<List<Value>> Read(IEnumerable<Key> keys)
@@ -162,7 +160,8 @@ namespace ListMgmt
             if (keys.Any())
             {
                 result = await client.Read(keys).WithHttpHeaders(header).WithInstrumentation(instrumentation).SendAsync();
-                Stats.Add(("Read", instrumentation.LatencyInfo.GetTotalLatency(), instrumentation.LatencyInfo.GetServerSideLatency()));
+                if (instrumentation.LatencyInfo != null)
+                    Stats.Add(("Read", instrumentation.LatencyInfo.GetTotalLatency(), instrumentation.LatencyInfo.GetServerSideLatency()));
             }
 
             return result;
@@ -171,14 +170,16 @@ namespace ListMgmt
         static async Task<List<bool>> ContainsKeys(IEnumerable<Key> keys)
         {
             var result = await client.ContainsKeys(keys).WithHttpHeaders(header).WithInstrumentation(instrumentation).SendAsync();
-            Stats.Add(("ContainsKeys", instrumentation.LatencyInfo.GetTotalLatency(), instrumentation.LatencyInfo.GetServerSideLatency()));
+            if (instrumentation.LatencyInfo != null)
+                Stats.Add(("ContainsKeys", instrumentation.LatencyInfo.GetTotalLatency(), instrumentation.LatencyInfo.GetServerSideLatency()));
             return result;
         }
 
         static async Task Delete(IEnumerable<Key> keys)
         {
             await client.Delete(keys).WithHttpHeaders(header).WithInstrumentation(instrumentation).SendAsync();
-            Stats.Add(("Delete", instrumentation.LatencyInfo.GetTotalLatency(), instrumentation.LatencyInfo.GetServerSideLatency()));
+            if (instrumentation.LatencyInfo != null)
+                Stats.Add(("Delete", instrumentation.LatencyInfo.GetTotalLatency(), instrumentation.LatencyInfo.GetServerSideLatency()));
         }
 
   
@@ -241,7 +242,7 @@ namespace ListMgmt
                 osNamespace: NamespaceName,
                 osTable: TableName,
                 timeout: TimeSpan.FromMilliseconds(2000),
-                maxRetries: 0)//.WithClientVersion(ClientVersion.V2)
+                maxRetries: 0).WithClientVersion(ClientVersion.V2)
                 ;
 
 
@@ -329,20 +330,15 @@ namespace ListMgmt
         {
             return GuidFromInt("List", digit);
         }
-        private static Guid RequireValidTenant(int digit)
-        {
-            return GuidFromInt("Tenant", digit);
-        }
         private static Guid RequireValidEnvironment(int digit)
         {
             return GuidFromInt("Environment", digit);
         }
 
-        private static async Task RequireValidKeyFields(int tenant, int environment, int list)
+        private static async Task RequireValidKeyFields(int environment, int list)
         {
             listGuid = RequireValidList(list);
             environmentId = RequireValidEnvironment(environment);
-            tenantId = RequireValidTenant(tenant);
             revision = await GetRevision();
         }
 
@@ -466,7 +462,7 @@ namespace ListMgmt
             };
 
             // The loader will use 20 keys per request, 20 simultenous requests, 10000 ms of timeout per request and a limit of 2000 keys per second
-            var config = new DataLoadConfiguration(locations, NamespaceName, TableName, 20, 20, 2, 20000, 2000, true).WithClientCertificates(Certificates);
+            var config = new DataLoadConfiguration(locations, NamespaceName, TableName, 50, 20, 2, 20000, 4000, true).WithClientCertificates(Certificates);
             using (var loader = new DataLoader(config))
             {
                 for (int recNo = startRow; recNo <= endRow; recNo++)
@@ -511,8 +507,8 @@ namespace ListMgmt
                 Console.WriteLine($"Rev {result.Key.Ids.Revision} Type {(RecordType)result.Key.RecType} {result.Key.ListKey}");
             }
 
-
-            Stats.Add(("RangeQuery", instrumentation.LatencyInfo.GetTotalLatency(), instrumentation.LatencyInfo.GetServerSideLatency()));
+            if (instrumentation.LatencyInfo != null)
+                Stats.Add(("RangeQuery", instrumentation.LatencyInfo.GetTotalLatency(), instrumentation.LatencyInfo.GetServerSideLatency()));
         }
 
         private static async Task<RangeQueryResults<Key, Value>> ExecuteContinuation(RangeQueryResults<Key, Value> previousResults)
@@ -536,7 +532,7 @@ namespace ListMgmt
             };
 
             // The loader will use 20 keys per request, 20 simultenous requests, 10000 ms of timeout per request and a limit of 1000 keys per second
-            var config = new DataLoadConfiguration(locations, NamespaceName, TableName, 50, 20, 2, 20000, 2000, true).WithClientCertificates(Certificates);
+            var config = new DataLoadConfiguration(locations, NamespaceName, TableName, 50, 20, 2, 20000, 4000, true).WithClientCertificates(Certificates);
             using (var loader = new DataLoader(config))
             {
                 List<KeyValuePair<Key, Value>> allResults = new List<KeyValuePair<Key, Value>>();
@@ -574,7 +570,8 @@ namespace ListMgmt
                 LogResults(finalResults);
             }
             Stats.Add(("Bulk Delete", stopwatch.ElapsedMilliseconds, 0));
-            Stats.Add(("RangeQuery", instrumentation.LatencyInfo.GetTotalLatency(), instrumentation.LatencyInfo.GetServerSideLatency()));
+            if (instrumentation.LatencyInfo != null)
+                Stats.Add(("RangeQuery", instrumentation.LatencyInfo.GetTotalLatency(), instrumentation.LatencyInfo.GetServerSideLatency()));
         }
 
         private static async Task<RangeQueryResults<Key, Value>> ExecuteDeleteContinuation(RangeQueryResults<Key, Value> previousResults)
@@ -624,12 +621,12 @@ namespace ListMgmt
 
         private static string Context()
         {
-            return $"Tenant {tenantId} Environment {environmentId} List {listGuid}";
+            return $"Environment {environmentId} List {listGuid}";
         }
 
         private static async Task<ushort> GetRevision()
         {
-            var key = MakeRowKey(0, RecordType.ListCandidateRevision);
+            var key = MakeRowKey(0, RecordType.ListRevisionNum);
             var value = (await Read(new[] { key })).FirstOrDefault();
 
             if (value == null)
@@ -682,11 +679,11 @@ namespace ListMgmt
             await Delete(new[] { key });
         }
 
-        private static async Task BulkImporter(int tenant, int environment, int list)
+        private static async Task BulkImporter(int environment, int list)
         {
             (int rows, int columns) = RequireRowsAndColumns();
 
-            await RequireValidKeyFields(tenant, environment, list);
+            await RequireValidKeyFields(environment, list);
 
             Console.WriteLine($"Bulk Importing {rows} Rows and {columns} Columns into {Context()}");
 
@@ -700,24 +697,24 @@ namespace ListMgmt
         }
 
         // Upsert values into the first n columns of n rows starting at row n
-        private static async Task BulkUpserter(int tenant, int envivronment, int list)
+        private static async Task BulkUpserter(int envivronment, int list)
         {
             (int rows, int columns) = RequireRowsAndColumns();
 
             int row = RequireRow();
 
-           await RequireValidKeyFields(tenant, envivronment, list);
+           await RequireValidKeyFields(envivronment, list);
 
             Console.WriteLine($"Bulk Upserting {rows} Rows into {Context()}");
 
             await DoBulkWrite("upsert", row, rows, columns, MakeUpsertRecord);
         }
 
-        private static async Task BulkDeleter(int tenant, int environment, int list)
+        private static async Task BulkDeleter(int environment, int list)
         {
             int rows = RequireRows();
 
-            await RequireValidKeyFields(tenant, environment, list);
+            await RequireValidKeyFields(environment, list);
 
             Console.WriteLine($"Bulk Deleting {rows} Rows  from {Context()}");
 
@@ -725,53 +722,45 @@ namespace ListMgmt
         }
 
         // Delete the whole list -- even the schema.
-        private static async Task BulkDeleter2(int tenant, int environment, int list)
+        private static async Task RangeDelete(int environment, int list)
         {
-            await RequireValidKeyFields(tenant, environment, list);
+            await RequireValidKeyFields(environment, list);
+            int row = RequireRow();
+            int rows = RequireRows();
 
             Console.WriteLine($"Bulk Deleting {Context()}");
 
-            var key1 = MakeRowKey(1, RecordType.ListRow);
-            var key2 = MakeRowKey(3000000, RecordType.ListRow);
+            var key1 = MakeRowKey(row, RecordType.ListRow);
+            var key2 = MakeRowKey(row + rows - 1, RecordType.ListRow);
 
-            ////All Tenants
-            //key1.Ids.TenantId.High = 0;
-            //key1.Ids.TenantId.Low = 0;
-            //key2.Ids.TenantId.High = ulong.MaxValue;
-            //key2.Ids.TenantId.Low = ulong.MaxValue;
 
-            //// All Environments
-            //key1.Ids.EnvironmentId.High = 0;
-            //key1.Ids.EnvironmentId.Low = 0;
-            //key2.Ids.EnvironmentId.High = ulong.MaxValue;
-            //key2.Ids.EnvironmentId.Low = ulong.MaxValue;
-
-            //// All Lists
-            //key1.Ids.ListId.High = 0;
-            //key1.Ids.ListId.Low = 0;
-            //key2.Ids.ListId.High = ulong.MaxValue;
-            //key2.Ids.ListId.Low = ulong.MaxValue;
-
-            ////All Revisions
-            //key1.Ids.Revision = 3;
-            //key2.Ids.Revision = 5;
-
-            Console.WriteLine("Tenant {0}", GuidFromParts(key1.Ids.TenantId.Low, key1.Ids.TenantId.High));
-            Console.WriteLine("Tenant {0}", GuidFromParts(key2.Ids.TenantId.Low, key2.Ids.TenantId.High));
             Console.WriteLine("Env {0}", GuidFromParts(key1.Ids.EnvironmentId.Low, key1.Ids.EnvironmentId.High));
             Console.WriteLine("Env {0}", GuidFromParts(key2.Ids.EnvironmentId.Low, key2.Ids.EnvironmentId.High));
             Console.WriteLine("List {0}", GuidFromParts(key1.Ids.ListId.Low, key1.Ids.ListId.High));
             Console.WriteLine("List {0}", GuidFromParts(key2.Ids.ListId.Low, key2.Ids.ListId.High));
 
 
-            //key1.ListKey = "0000056677";
-            //key2.ListKey = "9999999999";
+            await RangeBulkDelete(key1, key2);
+        }
 
-                      //  await RangeBulkDelete(key1, key2);
+        private static async Task QueryList(int environment, int list)
+        {
+            await RequireValidKeyFields(environment, list);
+            int row = RequireRow();
+            int rows = RequireRows();
+
+            Console.WriteLine($"Querying List {Context()}");
+
+            var key1 = MakeRowKey(row, RecordType.ListRow);
+            var key2 = MakeRowKey(row+rows-1, RecordType.ListRow);
+
+
+            Console.WriteLine("Env {0}", GuidFromParts(key1.Ids.EnvironmentId.Low, key1.Ids.EnvironmentId.High));
+            Console.WriteLine("Env {0}", GuidFromParts(key2.Ids.EnvironmentId.Low, key2.Ids.EnvironmentId.High));
+            Console.WriteLine("List {0}", GuidFromParts(key1.Ids.ListId.Low, key1.Ids.ListId.High));
+            Console.WriteLine("List {0}", GuidFromParts(key2.Ids.ListId.Low, key2.Ids.ListId.High));
+
             await TestRangeQuery(key1, key2);
-
-
-            //            throw new NotImplementedException("Required co procs and range queries.");
         }
 
 
@@ -779,7 +768,6 @@ namespace ListMgmt
         {
             GuidToParts(listGuid, out ulong listPart1, out ulong listPart2);
             GuidToParts(environmentId, out ulong envPart1, out ulong envPart2);
-            GuidToParts(tenantId, out ulong tenantPart1, out ulong tenantPart2);
 
             int forcerevision = myCommands["--revision"].Value;
             if (forcerevision > 0)
@@ -797,11 +785,6 @@ namespace ListMgmt
                         High = listPart1,
                         Low = listPart2,
                     },
-                    TenantId = new BondGuid()
-                    {
-                        High = tenantPart1,
-                        Low = tenantPart2,
-                    },
                     EnvironmentId = new BondGuid()
                     {
                         High = envPart1,
@@ -816,12 +799,12 @@ namespace ListMgmt
             return key;
         }
 
-        private static async Task BulkReader(int tenant, int environment, int list)
+        private static async Task BulkReader(int environment, int list)
         {
             int rows = RequireRows();
             int startRow = RequireRow();
 
-            await RequireValidKeyFields(tenant, environment, list);
+            await RequireValidKeyFields(environment, list);
 
             Console.WriteLine($"Bulk Reading the first {rows} Keys from {Context()}");
             List<Key> keys = new List<Key>(rows);
@@ -853,10 +836,10 @@ namespace ListMgmt
             return (key, value);
         }
 
-        private static async Task Reader(int tenant, int environment, int list)
+        private static async Task Reader(int environment, int list)
         {
             (int row, int column) = RequireRowAndColumn();
-            await RequireValidKeyFields(tenant, environment, list); 
+            await RequireValidKeyFields(environment, list); 
             
             string colVal = string.Empty;
 
@@ -875,11 +858,11 @@ namespace ListMgmt
             }
         }
 
-        private static async Task Updater(int tenant, int environment, int list)
+        private static async Task Updater(int environment, int list)
         {
             (int row, int column) = RequireRowAndColumn();
 
-            await RequireValidKeyFields(tenant, environment, list); 
+            await RequireValidKeyFields(environment, list); 
 
             string oldValue = string.Empty;
 
@@ -908,12 +891,12 @@ namespace ListMgmt
                 Console.WriteLine($"Key {key.ListKey} Nothing found to update.");
         }
 
-        private static async Task Deleter(int tenant, int environment, int list)
+        private static async Task Deleter(int environment, int list)
         {
             int row = RequireRow();
             int rows = RequireRows();
 
-            await RequireValidKeyFields(tenant, environment, list);
+            await RequireValidKeyFields(environment, list);
 
             for (int i = row; i < row + rows; i++)
             {
@@ -933,7 +916,7 @@ namespace ListMgmt
             }
         }
 
-        private static async Task<bool> TryInvoke(string command, Func<int, int, int, Task> function)
+        private static async Task<bool> TryInvoke(string command, Func<int, int, Task> function)
         {
             try
             {
@@ -943,7 +926,7 @@ namespace ListMgmt
                 {
                     await Waiter();
 
-                    await function(configurations[argument].Tenant, configurations[argument].Environment, configurations[argument].List);
+                    await function(configurations[argument-1].Environment, configurations[argument-1].List);
                     Console.WriteLine($"{command} executed successfully.");
                     return true;
                 }
@@ -962,11 +945,11 @@ namespace ListMgmt
             public bool IsNumeric { get; set; }
             public int Value { get; set; }
             public string StringValue { get; set; }
-            public Func<int, int, int, Task> Implementer { get; set; }
+            public Func<int, int, Task> Implementer { get; set; }
         }
         static Dictionary<string, MyCommandOptions> myCommands = new Dictionary<string, MyCommandOptions>();
 
-        static void AddCommandOption(CommandLineApplication app, bool isNumeric, string command, string description, Func<int, int, int, Task> implementer = null)
+        static void AddCommandOption(CommandLineApplication app, bool isNumeric, string command, string description, Func<int, int, Task> implementer = null)
         {
             string cmdLineOption = $"--{command}";
             var option = app.Option(cmdLineOption, description, CommandOptionType.SingleValue);
@@ -984,7 +967,8 @@ namespace ListMgmt
             AddCommandOption(app, true, "bulk-upsert", "Uses Point Dataloader. Data is generated. Specify which list to upsert keys into. Upserts n rows and n columns starting at given row", BulkUpserter);
             AddCommandOption(app, true, "bulk-delete", "Uses Point Dataloader. Specify which list to delete keys from. Deletes n rows.", BulkDeleter);
             AddCommandOption(app, true, "read-keys", "Specify which list to read keys from.", BulkReader);
-            AddCommandOption(app, true, "delete-list", "Uses Range Queries. Specify which list to delete.", BulkDeleter2);
+            AddCommandOption(app, true, "delete-list", "Uses Range Queries. Specify which list to delete.", RangeDelete);
+            AddCommandOption(app, true, "query-list", "Uses Range Queries to query list n at row row for rows rows. ", QueryList);
             AddCommandOption(app, true, "read-key", "Reads the key at row/col from list n", Reader);
             AddCommandOption(app, true, "update-key", "Reads and updates the key at row/col from list. Data is generated.", Updater);
             AddCommandOption(app, true, "delete-key", "Deletes the key at row/col from list n", Deleter);

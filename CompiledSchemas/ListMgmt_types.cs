@@ -574,26 +574,14 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
     // Fields
     //
 
-    // 0: Required ListMgmt.BondGuid TenantId
-    private global::ListMgmt.BondGuid m_TenantId;
-
-    // 1: Required ListMgmt.BondGuid EnvironmentId
+    // 0: Required ListMgmt.BondGuid EnvironmentId
     private global::ListMgmt.BondGuid m_EnvironmentId;
 
-    // 2: Required ListMgmt.BondGuid ListId
+    // 1: Required ListMgmt.BondGuid ListId
     private global::ListMgmt.BondGuid m_ListId;
 
-    // 3: Required uint16 Revision
+    // 2: Required uint16 Revision
     private UInt16 m_Revision;
-
-    /// <summary>
-    /// TenantId
-    /// </summary>
-    public global::ListMgmt.BondGuid TenantId
-    {
-        get { return this.m_TenantId; }
-        set { this.m_TenantId = value; }
-    }
 
     /// <summary>
     /// EnvironmentId
@@ -636,7 +624,6 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
     private static class Schema
     {
         public static readonly Metadata meta = new Metadata();
-        public static readonly Metadata TenantId_meta = new Metadata();
         public static readonly Metadata EnvironmentId_meta = new Metadata();
         public static readonly Metadata ListId_meta = new Metadata();
         public static readonly Metadata Revision_meta = new Metadata();
@@ -649,10 +636,6 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
             meta.name = runtimeName.ToString();
             meta.qualified_name = "ListMgmt." + meta.name;
 
-
-            // TenantId
-            TenantId_meta.name = "TenantId";
-            TenantId_meta.modifier = global::Microsoft.Bond.Modifier.Required;
 
             // EnvironmentId
             EnvironmentId_meta.name = "EnvironmentId";
@@ -674,10 +657,9 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
 
     private static class __ordinals
     {
-        public const int TenantId = 0;
-        public const int EnvironmentId = 1;
-        public const int ListId = 2;
-        public const int Revision = 3;
+        public const int EnvironmentId = 0;
+        public const int ListId = 1;
+        public const int Revision = 2;
     }   // ~__ordinals
 
 
@@ -687,7 +669,6 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
         public static readonly String sc_structName = Schema.meta.name;
         public static readonly String sc_structQualifiedName = Schema.meta.qualified_name;
 
-        public const String s_TenantId = "TenantId";
         public const String s_EnvironmentId = "EnvironmentId";
         public const String s_ListId = "ListId";
         public const String s_Revision = "Revision";
@@ -720,7 +701,6 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
 
     private void ResetImpl(string name, string qualifiedName)
     {
-        m_TenantId = new global::ListMgmt.BondGuid();
         m_EnvironmentId = new global::ListMgmt.BondGuid();
         m_ListId = new global::ListMgmt.BondGuid();
         m_Revision = 0;
@@ -746,13 +726,11 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
             throw new  ArgumentNullException("that");
         }
         
-        // 0: ListMgmt.BondGuid TenantId
-        that.TenantId = (this.TenantId == null ? null : (global::ListMgmt.BondGuid)this.TenantId.Clone());
-        // 1: ListMgmt.BondGuid EnvironmentId
+        // 0: ListMgmt.BondGuid EnvironmentId
         that.EnvironmentId = (this.EnvironmentId == null ? null : (global::ListMgmt.BondGuid)this.EnvironmentId.Clone());
-        // 2: ListMgmt.BondGuid ListId
+        // 1: ListMgmt.BondGuid ListId
         that.ListId = (this.ListId == null ? null : (global::ListMgmt.BondGuid)this.ListId.Clone());
-        // 3: uint16 Revision
+        // 2: uint16 Revision
         that.Revision = this.Revision;
     }    // ~CopyTo
 
@@ -821,20 +799,11 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
 
         if (!canOmitFields || !reader.ReadFieldOmitted())
         {
-            this.TenantId.Read(reader);
-        }
-        else
-        {
-            throw new BondException("Missing required field \"TenantId\", id=0");
-        }
-
-        if (!canOmitFields || !reader.ReadFieldOmitted())
-        {
             this.EnvironmentId.Read(reader);
         }
         else
         {
-            throw new BondException("Missing required field \"EnvironmentId\", id=1");
+            throw new BondException("Missing required field \"EnvironmentId\", id=0");
         }
 
         if (!canOmitFields || !reader.ReadFieldOmitted())
@@ -843,7 +812,7 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
         }
         else
         {
-            throw new BondException("Missing required field \"ListId\", id=2");
+            throw new BondException("Missing required field \"ListId\", id=1");
         }
 
         if (!canOmitFields || !reader.ReadFieldOmitted())
@@ -852,7 +821,7 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
         }
         else
         {
-            throw new BondException("Missing required field \"Revision\", id=3");
+            throw new BondException("Missing required field \"Revision\", id=2");
         }
         reader.ReadStructEnd();
     }   // ~ReadUntagged()
@@ -864,7 +833,7 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
     protected  void Read(global::Microsoft.Bond.IProtocolReader reader, out bool isPartialStruct)
     {
         Reset();
-        BitArray seenRequiredFields = new BitArray(4);
+        BitArray seenRequiredFields = new BitArray(3);
 
         reader.ReadStructBegin(true);
         
@@ -883,22 +852,17 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
 
             switch (id)
             {
-                case __ordinals.TenantId:  // id=0
-                    global::Microsoft.Bond.ReadHelper.ValidateType(type, global::Microsoft.Bond.BondDataType.BT_STRUCT);
-                    this.TenantId.Read(reader);
-                    seenRequiredFields.Set(__ordinals.TenantId, true);
-                    break;
-                case __ordinals.EnvironmentId:  // id=1
+                case __ordinals.EnvironmentId:  // id=0
                     global::Microsoft.Bond.ReadHelper.ValidateType(type, global::Microsoft.Bond.BondDataType.BT_STRUCT);
                     this.EnvironmentId.Read(reader);
                     seenRequiredFields.Set(__ordinals.EnvironmentId, true);
                     break;
-                case __ordinals.ListId:  // id=2
+                case __ordinals.ListId:  // id=1
                     global::Microsoft.Bond.ReadHelper.ValidateType(type, global::Microsoft.Bond.BondDataType.BT_STRUCT);
                     this.ListId.Read(reader);
                     seenRequiredFields.Set(__ordinals.ListId, true);
                     break;
-                case __ordinals.Revision:  // id=3
+                case __ordinals.Revision:  // id=2
                     this.Revision = global::Microsoft.Bond.ReadHelper.ReadUInt16(reader, type);
                     seenRequiredFields.Set(__ordinals.Revision, true);
                     break;
@@ -923,12 +887,6 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
         UInt16 missingFieldId = UInt16.MaxValue;
         bool ok = true;
         
-        if (ok && !seenFields.Get(__ordinals.TenantId))
-        {
-            ok = false;
-            missingFieldName = "TenantId";
-            missingFieldId = __ordinals.TenantId;
-        }
         if (ok && !seenFields.Get(__ordinals.EnvironmentId))
         {
             ok = false;
@@ -1011,9 +969,6 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
 
         writer.WriteStructBegin(Schema.meta, !isTopLevel, true);
 
-        writer.WriteFieldBegin(global::Microsoft.Bond.BondDataType.BT_STRUCT, __ordinals.TenantId, Schema.TenantId_meta);
-            m_TenantId.Write(writer, true);
-        writer.WriteFieldEnd();
         writer.WriteFieldBegin(global::Microsoft.Bond.BondDataType.BT_STRUCT, __ordinals.EnvironmentId, Schema.EnvironmentId_meta);
             m_EnvironmentId.Write(writer, true);
         writer.WriteFieldEnd();
@@ -1087,16 +1042,6 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
 
         field = new global::Microsoft.Bond.FieldDef();
         field.id = 0;
-        field.metadata.name="TenantId";
-        field.metadata.modifier = global::Microsoft.Bond.Modifier.Required;
-        field.metadata.default_value.nothing = false;
-
-        field.type = global::ListMgmt.BondGuid.GetTypeDef(schema);
-
-        structDef.fields.Add(field);
-
-        field = new global::Microsoft.Bond.FieldDef();
-        field.id = 1;
         field.metadata.name="EnvironmentId";
         field.metadata.modifier = global::Microsoft.Bond.Modifier.Required;
         field.metadata.default_value.nothing = false;
@@ -1106,7 +1051,7 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
         structDef.fields.Add(field);
 
         field = new global::Microsoft.Bond.FieldDef();
-        field.id = 2;
+        field.id = 1;
         field.metadata.name="ListId";
         field.metadata.modifier = global::Microsoft.Bond.Modifier.Required;
         field.metadata.default_value.nothing = false;
@@ -1116,7 +1061,7 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
         structDef.fields.Add(field);
 
         field = new global::Microsoft.Bond.FieldDef();
-        field.id = 3;
+        field.id = 2;
         field.metadata.name="Revision";
         field.metadata.modifier = global::Microsoft.Bond.Modifier.Required;
         field.metadata.default_value.nothing = false;
@@ -1180,7 +1125,6 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
     {
         bool equals = true;
         
-        equals = equals && (this.TenantId == null ? true : this.TenantId.MemberwiseCompare(that.TenantId));
         equals = equals && (this.EnvironmentId == null ? true : this.EnvironmentId.MemberwiseCompare(that.EnvironmentId));
         equals = equals && (this.ListId == null ? true : this.ListId.MemberwiseCompare(that.ListId));
         return equals;
@@ -1207,7 +1151,6 @@ public partial class PartitionedKeyFields : IBondSerializable, IGenericSerialize
         }
         
         string format = valuesOnly ? "{1}{2}" : "{0} = {1}{2}";
-        sb.AppendFormat(format, __internal.s_TenantId, this.TenantId, separator);
         sb.AppendFormat(format, __internal.s_EnvironmentId, this.EnvironmentId, separator);
         sb.AppendFormat(format, __internal.s_ListId, this.ListId, separator);
         sb.AppendFormat(format, __internal.s_Revision, this.Revision, separator);

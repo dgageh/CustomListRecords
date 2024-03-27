@@ -7,10 +7,9 @@ struct BondGuid
 }
 struct PartitionedKeyFields
 {
-    0: required BondGuid TenantId;
-    1: required BondGuid EnvironmentId;
-    2: required BondGuid ListId;
-    3: required uint16 Revision;
+    0: required BondGuid EnvironmentId;
+    1: required BondGuid ListId;
+    2: required uint16 Revision;
 }
 
 [SortableEncoding("1.0")]
